@@ -93,21 +93,16 @@ def _step2_employees_growth(
 ) -> Optional[dict]:
     """Step 2: Check growth cache in enriched_companies.
 
-    Returns cached growth data if all columns are non-NULL, else None.
+    Returns cached growth data from employees_growth JSONB column, else None.
     """
     company = db.read_enriched_company(domain)
     if not company:
         return None
 
-    growth_fields = ["growth_1_year", "growth_6_months", "growth_2_years", "headcount_growth"]
-    if all(company.get(f) is not None for f in growth_fields):
+    growth = company.get("employees_growth")
+    if growth and isinstance(growth, dict):
         logger.info("Step 2: Using cached growth data from enriched_companies")
-        return {
-            "growth_6_months": company["growth_6_months"],
-            "growth_1_year": company["growth_1_year"],
-            "growth_2_years": company["growth_2_years"],
-            "headcount_growth": company["headcount_growth"],
-        }
+        return growth
     return None
 
 
