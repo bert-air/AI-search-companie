@@ -1,0 +1,74 @@
+"""LangGraph DAG — Company Audit Agent.
+
+This is the main graph file referenced by langgraph.json.
+Exports `graph` as the compiled StateGraph.
+
+Spec reference: Section 4 (architecture).
+
+Execution flow:
+  START → orchestrator
+  orchestrator → [agent_finance, agent_entreprise, ghost_genius]     (parallel)
+  ghost_genius → [agent_comex_organisation, agent_dynamique]          (parallel)
+  agent_comex_organisation → [agent_comex_profils, agent_connexions]  (parallel)
+  [all 5 leaf agents] → agent_scoring                                 (fan-in)
+  agent_scoring → agent_synthesizer
+  agent_synthesizer → END
+"""
+
+from langgraph.graph import StateGraph, START, END
+
+from hat_yai.state import AuditState
+from hat_yai.nodes.orchestrator import orchestrator_node
+from hat_yai.nodes.ghost_genius_node import ghost_genius_node
+from hat_yai.nodes.agent_finance import agent_finance_node
+from hat_yai.nodes.agent_entreprise import agent_entreprise_node
+from hat_yai.nodes.agent_dynamique import agent_dynamique_node
+from hat_yai.nodes.agent_comex_organisation import agent_comex_organisation_node
+from hat_yai.nodes.agent_comex_profils import agent_comex_profils_node
+from hat_yai.nodes.agent_connexions import agent_connexions_node
+from hat_yai.nodes.agent_scoring import agent_scoring_node
+from hat_yai.nodes.agent_synthesizer import agent_synthesizer_node
+
+# --- Build the graph ---
+
+builder = StateGraph(AuditState)
+
+# Register all nodes
+builder.add_node("orchestrator", orchestrator_node)
+builder.add_node("ghost_genius", ghost_genius_node)
+builder.add_node("agent_finance", agent_finance_node)
+builder.add_node("agent_entreprise", agent_entreprise_node)
+builder.add_node("agent_dynamique", agent_dynamique_node)
+builder.add_node("agent_comex_organisation", agent_comex_organisation_node)
+builder.add_node("agent_comex_profils", agent_comex_profils_node)
+builder.add_node("agent_connexions", agent_connexions_node)
+builder.add_node("agent_scoring", agent_scoring_node)
+builder.add_node("agent_synthesizer", agent_synthesizer_node)
+
+# --- Entry point ---
+builder.add_edge(START, "orchestrator")
+
+# --- Parallel fan-out from orchestrator ---
+builder.add_edge("orchestrator", "agent_finance")
+builder.add_edge("orchestrator", "agent_entreprise")
+builder.add_edge("orchestrator", "ghost_genius")
+
+# --- Ghost Genius triggers its dependents ---
+builder.add_edge("ghost_genius", "agent_comex_organisation")
+builder.add_edge("ghost_genius", "agent_dynamique")
+
+# --- COMEX Organisation triggers its dependents ---
+builder.add_edge("agent_comex_organisation", "agent_comex_profils")
+builder.add_edge("agent_comex_organisation", "agent_connexions")
+
+# --- Fan-in: wait for ALL leaf agents before scoring ---
+builder.add_edge(["agent_finance", "agent_entreprise", "agent_dynamique", "agent_comex_profils", "agent_connexions"], "agent_scoring")
+
+# --- Sequential: scoring then synthesis ---
+builder.add_edge("agent_scoring", "agent_synthesizer")
+
+# --- End ---
+builder.add_edge("agent_synthesizer", END)
+
+# --- Compile ---
+graph = builder.compile()

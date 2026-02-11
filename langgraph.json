@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "audit_agent": "./hat_yai/graph.py:graph"
+  },
+  "env": ".env"
+}
