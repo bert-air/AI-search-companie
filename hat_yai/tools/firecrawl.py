@@ -36,7 +36,5 @@ def scrape_page(url: str) -> str:
         url: The URL to scrape.
     """
     app = _get_app()
-    result = app.scrape_url(url, params={"formats": ["markdown"]})
-    if isinstance(result, dict):
-        return result.get("markdown", result.get("content", ""))
-    return str(result)
+    result = app.scrape(url, formats=["markdown"])
+    return result.markdown or ""

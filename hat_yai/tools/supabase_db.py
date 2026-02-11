@@ -32,14 +32,10 @@ def read_enriched_company(domain: str) -> Optional[dict]:
 
 
 def update_enriched_companies_growth(domain: str, growth_data: dict) -> None:
-    """UPDATE enriched_companies SET growth columns WHERE domain LIKE '%{domain}%'"""
+    """UPDATE enriched_companies SET employees_growth (JSONB) WHERE domain LIKE '%{domain}%'"""
     client = _get_client()
     client.table("enriched_companies").update({
-        "growth_6_months": growth_data.get("growth_6_months"),
-        "growth_1_year": growth_data.get("growth_1_year"),
-        "growth_2_years": growth_data.get("growth_2_years"),
-        "headcount_growth": growth_data.get("headcount_growth"),
-        "growth_updated_at": datetime.now(timezone.utc).isoformat(),
+        "employees_growth": growth_data,
     }).ilike("domain", f"%{domain}%").execute()
 
 
