@@ -189,9 +189,9 @@ async def _step4_enrich_profiles(
                 })
             logger.debug(f"Step 4: Cached enrichment for {exec_data.get('full_name')}")
         else:
-            # Call enrich edge function, wait 10s, re-read
+            # Call enrich edge function, wait 2s, re-read
             success = await db.call_enrich_function(url)
-            await asyncio.sleep(10)
+            await asyncio.sleep(2)
 
             contact = db.read_enriched_contact(url)
             if contact:

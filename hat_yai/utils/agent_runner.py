@@ -17,7 +17,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
 from hat_yai.models import AgentReport
 from hat_yai.state import AuditState
-from hat_yai.utils.llm import get_llm, load_prompt
+from hat_yai.utils.llm import get_llm, get_fast_llm, load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +180,7 @@ async def run_agent(
 
         # Step B — extract structured output from the concise analysis only
         signal_ids = _extract_signal_ids(system_prompt)
-        extraction_llm = get_llm(max_tokens=4096).with_structured_output(AgentReport)
+        extraction_llm = get_fast_llm(max_tokens=4096).with_structured_output(AgentReport)
         extraction_instruction = (
             "Convertis l'analyse ci-dessous en AgentReport JSON structuré.\n\n"
             "RÈGLES CRITIQUES pour le champ signals :\n"
