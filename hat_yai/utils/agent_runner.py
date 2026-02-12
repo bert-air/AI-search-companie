@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
@@ -21,6 +22,8 @@ from hat_yai.utils.llm import get_llm, load_prompt
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
+_MAX_TOOL_RESULT_CHARS = 20_000
+_MAX_CONTEXT_CHARS = 150_000
 
 # Fields to keep per agent when slimming executive data
 _EXEC_BASE_FIELDS = {"full_name", "headline", "current_job_title", "is_current_employee", "url"}
@@ -31,7 +34,8 @@ _EXEC_FIELDS_BY_AGENT = {
     "dynamique": _EXEC_BASE_FIELDS,
 }
 
-_MAX_POSTS = 50
+_MAX_EXECS = 25
+_MAX_POSTS = 30
 _POST_TEXT_LIMIT = 500
 
 
@@ -49,12 +53,18 @@ def _slim_executive(exec_data: dict, agent_name: str) -> dict:
 
 def _slim_posts(posts: list[dict]) -> list[dict]:
     """Keep top posts by engagement, truncate text."""
-    sorted_posts = sorted(posts, key=lambda p: p.get("total_reactions", 0), reverse=True)
+    sorted_posts = sorted(posts, key=lambda p: p.get("total_reactions", 0) if isinstance(p, dict) else 0, reverse=True)
     result = []
     for post in sorted_posts[:_MAX_POSTS]:
+        if not isinstance(post, dict):
+            continue
+        # GG API may return text as nested object — ensure we get a string
+        raw_text = post.get("text") or post.get("post_text") or ""
+        if not isinstance(raw_text, str):
+            raw_text = str(raw_text) if raw_text else ""
         slim = {
             "full_name": post.get("full_name", ""),
-            "post_text": (post.get("post_text") or "")[:_POST_TEXT_LIMIT],
+            "post_text": raw_text[:_POST_TEXT_LIMIT],
             "published_at": post.get("published_at"),
             "total_reactions": post.get("total_reactions", 0),
             "total_comments": post.get("total_comments", 0),
@@ -76,7 +86,7 @@ def _build_context(state: AuditState, agent_name: str, extra_context: Optional[d
     gg_agents = {"comex_organisation", "comex_profils", "connexions", "dynamique"}
     if agent_name in gg_agents and state.get("ghost_genius_available"):
         if state.get("ghost_genius_executives"):
-            execs = [_slim_executive(e, agent_name) for e in state["ghost_genius_executives"]]
+            execs = [_slim_executive(e, agent_name) for e in state["ghost_genius_executives"][:_MAX_EXECS]]
             parts.append(f"\n## Dirigeants (Ghost Genius)\n```json\n{json.dumps(execs, ensure_ascii=False, indent=2)}\n```")
         if agent_name != "connexions" and state.get("ghost_genius_posts"):
             posts = _slim_posts(state["ghost_genius_posts"])
@@ -113,6 +123,12 @@ async def run_agent(
 
         # Tool-calling loop
         for iteration in range(MAX_TOOL_ITERATIONS):
+            # Context size guard — stop if accumulated context is too large
+            ctx_size = _estimate_context_chars(messages)
+            if ctx_size > _MAX_CONTEXT_CHARS:
+                logger.warning(f"Agent {agent_name}: context size {ctx_size} exceeds limit, stopping tool loop")
+                break
+
             if tools:
                 response = await llm.bind_tools(tools).ainvoke(messages)
             else:
@@ -132,8 +148,13 @@ async def run_agent(
                     else:
                         result = f"Error: unknown tool {tc['name']}"
 
+                    # Truncate oversized tool results
+                    result_str = str(result)
+                    if len(result_str) > _MAX_TOOL_RESULT_CHARS:
+                        result_str = result_str[:_MAX_TOOL_RESULT_CHARS] + "\n\n[… résultat tronqué]"
+
                     messages.append(ToolMessage(
-                        content=str(result),
+                        content=result_str,
                         tool_call_id=tc["id"],
                     ))
                 continue
@@ -141,10 +162,43 @@ async def run_agent(
             # No tool calls — agent is done
             break
 
-        # Extract structured output
+        # Two-step extraction:
+        # Step A — ask the LLM to produce a concise analysis with explicit signal verdicts
+        signals_section = _extract_signals_section(system_prompt)
+        analysis_prompt = (
+            "Résume ton analyse en 2000 mots max. Pour chaque signal ci-dessous, "
+            "indique explicitement : signal_id → DETECTED / NOT_DETECTED / UNKNOWN + justification courte.\n"
+            "Base-toi sur TOUTES les données (contexte fourni + résultats web). "
+            "Ne mets UNKNOWN que si tu n'as vraiment aucune donnée pertinente.\n\n"
+        )
+        if signals_section:
+            analysis_prompt += signals_section + "\n"
+
+        analysis_response = await llm.ainvoke(messages + [HumanMessage(content=analysis_prompt)])
+        analysis_text = analysis_response.content if isinstance(analysis_response.content, str) else str(analysis_response.content)
+        logger.info(f"Agent {agent_name}: analysis step produced {len(analysis_text)} chars")
+
+        # Step B — extract structured output from the concise analysis only
+        signal_ids = _extract_signal_ids(system_prompt)
         extraction_llm = get_llm(max_tokens=4096).with_structured_output(AgentReport)
-        extraction_messages = messages + [
-            HumanMessage(content="Maintenant, produis ton rapport final au format JSON structuré AgentReport."),
+        extraction_instruction = (
+            "Convertis l'analyse ci-dessous en AgentReport JSON structuré.\n\n"
+            "RÈGLES CRITIQUES pour le champ signals :\n"
+        )
+        if signal_ids:
+            extraction_instruction += (
+                f"- Tu DOIS inclure exactement ces signal_id : {signal_ids}\n"
+                "- Pour chaque signal, extrais le status (DETECTED/NOT_DETECTED/UNKNOWN), "
+                "l'evidence et la confidence depuis l'analyse.\n"
+                "- Ne mets UNKNOWN que si l'analyse ne contient AUCUNE information sur ce signal.\n"
+            )
+        else:
+            extraction_instruction += "- Cet agent n'émet aucun signal. Le champ signals doit être [].\n"
+        extraction_instruction += f"\n---\n\n{analysis_text}"
+
+        extraction_messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=extraction_instruction),
         ]
         report: AgentReport = await extraction_llm.ainvoke(extraction_messages)
         report.agent_name = agent_name
@@ -161,6 +215,35 @@ async def run_agent(
             "agent_reports": [fallback.model_dump()],
             "node_errors": {agent_name: str(e)},
         }
+
+
+def _extract_signals_section(prompt: str) -> str:
+    """Extract the signals table section from an agent's system prompt."""
+    match = re.search(r"(## Signaux à émettre.*?)(?=\n## |\Z)", prompt, re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+
+def _extract_signal_ids(prompt: str) -> list[str]:
+    """Extract signal_id values from the signals table in the prompt."""
+    signals_section = _extract_signals_section(prompt)
+    if not signals_section:
+        return []
+    # Match backtick-wrapped signal_ids in markdown table rows (preceded by |)
+    return re.findall(r"\|\s*`(\w+)`", signals_section)
+
+
+def _estimate_context_chars(messages: list) -> int:
+    """Rough estimate of total context size in characters."""
+    total = 0
+    for msg in messages:
+        content = getattr(msg, "content", "")
+        if isinstance(content, str):
+            total += len(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    total += len(str(block))
+    return total
 
 
 def _find_tool(name: str, tools: list):

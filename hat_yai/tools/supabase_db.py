@@ -38,12 +38,17 @@ def read_enriched_company(domain: str, company_name: str = "") -> Optional[dict]
     return None
 
 
-def update_enriched_companies_growth(domain: str, growth_data: dict) -> None:
-    """UPDATE enriched_companies SET employees_growth (JSONB) WHERE domain LIKE '%{domain}%'"""
+def update_enriched_companies_growth(domain: str, growth_data: dict, company_name: str = "") -> None:
+    """UPDATE enriched_companies SET employees_growth. Uses read_enriched_company
+    to resolve the row first (handles domain mismatches via name fallback)."""
+    company = read_enriched_company(domain, company_name)
+    if not company:
+        logger.warning(f"update_enriched_companies_growth: no row found for domain={domain}, name={company_name}")
+        return
     client = _get_client()
     client.table("enriched_companies").update({
         "employees_growth": growth_data,
-    }).ilike("domain", f"%{domain}%").execute()
+    }).eq("linkedin_private_url", company["linkedin_private_url"]).execute()
 
 
 # --- enriched_contacts (existing table, read only) ---

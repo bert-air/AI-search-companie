@@ -17,17 +17,22 @@ Produire un rapport structuré sur les mouvements récents et la dynamique de l'
 - Signaux dans les **posts LinkedIn** des dirigeants (fournis dans le contexte)
 - **Croissance/décroissance effectifs** (données Ghost Genius fournies)
 
-## Outils disponibles
-
-- `search_web` : recherche web
-- `scrape_page` : scrape une page
-
 ## Données fournies (si Ghost Genius disponible)
 
 Les données suivantes sont dans ton contexte :
 - **Dirigeants** avec leurs expériences
 - **Posts LinkedIn** récents des dirigeants
 - **Croissance effectifs** (growth_6_months, growth_1_year, growth_2_years)
+
+**IMPORTANT** : Analyse ces données EN PREMIER. Elles suffisent souvent pour :
+- `croissance_effectifs_forte` / `decroissance_effectifs` → utilise directement growth_1_year
+- `posts_linkedin_transfo` → analyse les posts fournis pour détecter des mentions de transformation
+- Utilise les outils web uniquement pour **compléter** (acquisitions, PSE, plans stratégiques)
+
+## Outils disponibles
+
+- `search_web` : recherche web
+- `scrape_page` : scrape une page (tronqué à 15 000 caractères). Ne scrape que 2-3 pages max.
 
 ## Signaux à émettre
 

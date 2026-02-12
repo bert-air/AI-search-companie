@@ -264,8 +264,10 @@ async def _step5_linkedin_posts(
                 page2 = await gg.get_profile_posts(url, page=2, pagination_token=token)
                 posts.extend(page2.get("data", []))
 
-            # Insert into Supabase
+            # Attach author info and insert into Supabase
             for post in posts:
+                post["full_name"] = name
+                post["linkedin_url"] = url
                 db.insert_audit_linkedin_post(audit_id, url, name, post)
 
             all_posts.extend(posts)
@@ -322,7 +324,7 @@ async def ghost_genius_node(state: AuditState) -> dict:
             try:
                 growth = await gg.get_employees_growth(linkedin_company_url)
                 # Cache in enriched_companies
-                db.update_enriched_companies_growth(domain, growth)
+                db.update_enriched_companies_growth(domain, growth, company_name)
             except Exception as e:
                 logger.warning(f"Step 2 failed: {e}")
                 growth = {}

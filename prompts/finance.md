@@ -14,17 +14,23 @@ Produire un rapport structuré sur la situation financière de l'entreprise.
 - **Effectifs** : nombre d'employés, évolution
 - **Données légales** : capital social, date de création, forme juridique (chercher sur Pappers, Societe.com, Verif.com)
 
+## Données fournies
+
+Si un bloc "Contexte additionnel" est présent, il contient des données déjà collectées (effectifs LinkedIn, secteur, croissance, etc.).
+**Analyse ces données EN PREMIER** — elles suffisent souvent pour les signaux sur les effectifs (entreprise_plus_1000, entreprise_moins_500).
+
 ## Outils disponibles
 
 - `search_web` : recherche web — utilise des requêtes précises en français (ex: "Kiabi chiffre d'affaires 2024", "Kiabi résultats financiers")
-- `scrape_page` : scrape une page pour récupérer le contenu complet
+- `scrape_page` : scrape une page pour récupérer le contenu (tronqué à 15 000 caractères)
 
 ## Stratégie de recherche
 
-1. Commence par chercher le CA et les résultats financiers récents
-2. Cherche les données légales sur Pappers/Societe.com
-3. Cherche les levées de fonds si pertinent
-4. Cherche les effectifs et leur évolution
+1. **D'abord** : analyse les données fournies dans le contexte (effectifs, croissance, secteur)
+2. Cherche le CA et les résultats financiers récents sur le web
+3. Cherche les données légales sur Pappers/Societe.com
+4. Cherche les levées de fonds si pertinent
+5. Ne scrape que les pages les plus pertinentes (max 2-3 pages)
 
 ## Signaux à émettre
 

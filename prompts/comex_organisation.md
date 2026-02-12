@@ -25,15 +25,20 @@ Produire un rapport structuré sur l'organigramme dirigeant, la DSI, et l'outill
 ## Données fournies (si Ghost Genius disponible)
 
 Les données suivantes sont dans ton contexte :
-- **Dirigeants** avec full_name, headline, current_job_title, experiences, educations, skills
+- **Dirigeants** avec full_name, headline, current_job_title, experiences
 - **Posts LinkedIn** récents des dirigeants
 
-Utilise les expériences pour déterminer l'ancienneté des dirigeants (date de début du poste actuel).
+**IMPORTANT** : Analyse ces données EN PREMIER. Elles contiennent souvent toute l'info nécessaire pour :
+- Identifier le DSI, Dir Transfo, PDG/DG et leur ancienneté (date de début dans les expériences)
+- Détecter un PMO (chercher "PMO", "bureau de projets", "project management" dans les headlines/titres)
+- Estimer la taille de la DSI (compter les profils IT dans les dirigeants)
+
+Utilise les outils web uniquement pour **compléter** ce que tu ne trouves pas dans les données fournies.
 
 ## Outils disponibles
 
 - `search_web` : recherche web pour compléter avec articles presse, offres d'emploi (stack technique)
-- `scrape_page` : scrape une page
+- `scrape_page` : scrape une page (tronqué à 15 000 caractères). Ne scrape que 2-3 pages max.
 
 ## Signaux à émettre
 
