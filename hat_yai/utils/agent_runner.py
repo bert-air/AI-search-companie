@@ -22,6 +22,53 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
 
+# Fields to keep per agent when slimming executive data
+_EXEC_BASE_FIELDS = {"full_name", "headline", "current_job_title", "is_current_employee", "url"}
+_EXEC_FIELDS_BY_AGENT = {
+    "comex_organisation": _EXEC_BASE_FIELDS | {"experiences"},
+    "comex_profils": _EXEC_BASE_FIELDS | {"experiences", "skills"},
+    "connexions": {"full_name", "headline", "connected_with"},
+    "dynamique": _EXEC_BASE_FIELDS,
+}
+
+_MAX_POSTS = 50
+_POST_TEXT_LIMIT = 500
+
+
+def _slim_executive(exec_data: dict, agent_name: str) -> dict:
+    """Keep only the fields relevant to the agent. Trim experience descriptions."""
+    fields = _EXEC_FIELDS_BY_AGENT.get(agent_name, _EXEC_BASE_FIELDS)
+    slim = {k: v for k, v in exec_data.items() if k in fields}
+
+    # Trim experiences: keep company, title, dates — drop descriptions
+    if "experiences" in slim and isinstance(slim["experiences"], list):
+        slim["experiences"] = [
+            {k: v for k, v in exp.items() if k in (
+                "company_name", "company", "title", "position",
+                "start_date", "end_date", "starts_at", "ends_at",
+                "location",
+            )}
+            for exp in slim["experiences"]
+        ]
+
+    return slim
+
+
+def _slim_posts(posts: list[dict]) -> list[dict]:
+    """Keep top posts by engagement, truncate text."""
+    sorted_posts = sorted(posts, key=lambda p: p.get("total_reactions", 0), reverse=True)
+    result = []
+    for post in sorted_posts[:_MAX_POSTS]:
+        slim = {
+            "full_name": post.get("full_name", ""),
+            "post_text": (post.get("post_text") or "")[:_POST_TEXT_LIMIT],
+            "published_at": post.get("published_at"),
+            "total_reactions": post.get("total_reactions", 0),
+            "total_comments": post.get("total_comments", 0),
+        }
+        result.append(slim)
+    return result
+
 
 def _build_context(state: AuditState, agent_name: str, extra_context: Optional[dict] = None) -> str:
     """Build the human message content with company info and relevant GG data."""
@@ -36,9 +83,11 @@ def _build_context(state: AuditState, agent_name: str, extra_context: Optional[d
     gg_agents = {"comex_organisation", "comex_profils", "connexions", "dynamique"}
     if agent_name in gg_agents and state.get("ghost_genius_available"):
         if state.get("ghost_genius_executives"):
-            parts.append(f"\n## Dirigeants (Ghost Genius)\n```json\n{json.dumps(state['ghost_genius_executives'], ensure_ascii=False, indent=2)}\n```")
-        if state.get("ghost_genius_posts"):
-            parts.append(f"\n## Posts LinkedIn récents\n```json\n{json.dumps(state['ghost_genius_posts'], ensure_ascii=False, indent=2)}\n```")
+            execs = [_slim_executive(e, agent_name) for e in state["ghost_genius_executives"]]
+            parts.append(f"\n## Dirigeants (Ghost Genius)\n```json\n{json.dumps(execs, ensure_ascii=False, indent=2)}\n```")
+        if agent_name != "connexions" and state.get("ghost_genius_posts"):
+            posts = _slim_posts(state["ghost_genius_posts"])
+            parts.append(f"\n## Posts LinkedIn récents\n```json\n{json.dumps(posts, ensure_ascii=False, indent=2)}\n```")
         if state.get("ghost_genius_employees_growth"):
             parts.append(f"\n## Croissance effectifs\n```json\n{json.dumps(state['ghost_genius_employees_growth'], ensure_ascii=False, indent=2)}\n```")
 
