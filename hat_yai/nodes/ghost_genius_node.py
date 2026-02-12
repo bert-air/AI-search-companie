@@ -147,8 +147,8 @@ async def _step3_search_executives(
             exec_data["is_current_employee"] = False
             deduped.append(exec_data)
 
-    # Cap at 30 (current employees prioritized since they're added first)
-    deduped = deduped[:30]
+    # Cap at 50 (current employees prioritized since they're added first)
+    deduped = deduped[:50]
 
     # Insert into Supabase
     for exec_data in deduped:

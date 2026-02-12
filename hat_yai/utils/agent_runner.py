@@ -40,16 +40,9 @@ def _slim_executive(exec_data: dict, agent_name: str) -> dict:
     fields = _EXEC_FIELDS_BY_AGENT.get(agent_name, _EXEC_BASE_FIELDS)
     slim = {k: v for k, v in exec_data.items() if k in fields}
 
-    # Trim experiences: keep company, title, dates — drop descriptions
+    # Keep only the 3 most recent experiences (list is ordered most recent first)
     if "experiences" in slim and isinstance(slim["experiences"], list):
-        slim["experiences"] = [
-            {k: v for k, v in exp.items() if k in (
-                "company_name", "company", "title", "position",
-                "start_date", "end_date", "starts_at", "ends_at",
-                "location",
-            )}
-            for exp in slim["experiences"]
-        ]
+        slim["experiences"] = slim["experiences"][:3]
 
     return slim
 
