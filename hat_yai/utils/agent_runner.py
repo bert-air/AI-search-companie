@@ -35,8 +35,42 @@ _EXEC_FIELDS_BY_AGENT = {
 }
 
 _MAX_EXECS = 25
-_MAX_POSTS = 30
+_MAX_POSTS = 80
 _POST_TEXT_LIMIT = 500
+
+# Signal-relevant keywords for LinkedIn post filtering.
+# Posts matching these keywords keep their full text (500 chars);
+# non-matching posts keep only metadata (author, date, reactions).
+# See docs/SIGNAL_KEYWORDS.md for the full reference.
+_SIGNAL_KEYWORDS = [
+    # Transformation / Digital
+    "transformation", "transfo", "digitale", "digital", "innovation",
+    "modernisation", "dématérialisation", "numérique", "industrie 4.0",
+    # IT / DSI / Infrastructure
+    "dsi", "cio", "cto", "directeur des systèmes", "directeur informatique",
+    "directeur technique", "chief information", "chief technology",
+    "erp", "sap", "salesforce", "cloud", "aws", "azure", "gcp",
+    "migration", "cybersécurité", "cyber", "infra", "infrastructure",
+    "servicenow", "jira", "monday", "planview", "ms project",
+    "devops", "saas", "data", "ia ", "intelligence artificielle",
+    # PMO / Gestion de projets
+    "pmo", "bureau de projets", "project management", "program manager",
+    "programme manager", "portefeuille de projets", "gestion de projets",
+    "chef de projet", "directeur de programme", "roadmap", "feuille de route",
+    # Recrutement / RH
+    "recrute", "recrutement", "hiring", "rejoindre", "rejoignez",
+    "cdi", "embauche", "talent", "onboarding",
+    # Stratégie / Plans
+    "plan stratégique", "stratégie", "vision", "ambition",
+    "plan directeur", "schéma directeur", "cap ", "objectif stratégique",
+    # M&A / Restructuration
+    "acquisition", "fusion", "rachat", "cession", "m&a",
+    "pse", "licenciement", "plan social", "restructuration",
+    "réorganisation", "plan de sauvegarde",
+    # Finance / Croissance
+    "chiffre d'affaires", "croissance", "résultats", "levée de fonds",
+    "investissement", "budget it", "budget informatique",
+]
 
 
 def _slim_executive(exec_data: dict, agent_name: str) -> dict:
@@ -51,24 +85,45 @@ def _slim_executive(exec_data: dict, agent_name: str) -> dict:
     return slim
 
 
+def _match_signal_keywords(text: str) -> list[str]:
+    """Return signal keywords found in text (case-insensitive)."""
+    text_lower = text.lower()
+    return [kw for kw in _SIGNAL_KEYWORDS if kw in text_lower]
+
+
 def _slim_posts(posts: list[dict]) -> list[dict]:
-    """Keep top posts by engagement, truncate text."""
-    sorted_posts = sorted(posts, key=lambda p: p.get("total_reactions", 0) if isinstance(p, dict) else 0, reverse=True)
+    """Filter posts: keep full text for signal-relevant posts, metadata-only for others.
+
+    - Sorted by date (recent first) instead of engagement
+    - Capped at _MAX_POSTS (80)
+    - Posts matching signal keywords → full text (500 chars) + matched keywords
+    - Other posts → metadata only (author, date, reactions)
+    """
+    # Sort by date (recent first), fallback to empty string
+    sorted_posts = sorted(
+        (p for p in posts if isinstance(p, dict)),
+        key=lambda p: p.get("published_at") or "",
+        reverse=True,
+    )
     result = []
     for post in sorted_posts[:_MAX_POSTS]:
-        if not isinstance(post, dict):
-            continue
         # GG API may return text as nested object — ensure we get a string
         raw_text = post.get("text") or post.get("post_text") or ""
         if not isinstance(raw_text, str):
             raw_text = str(raw_text) if raw_text else ""
+
         slim = {
             "full_name": post.get("full_name", ""),
-            "post_text": raw_text[:_POST_TEXT_LIMIT],
             "published_at": post.get("published_at"),
             "total_reactions": post.get("total_reactions", 0),
             "total_comments": post.get("total_comments", 0),
         }
+
+        matched = _match_signal_keywords(raw_text)
+        if matched:
+            slim["post_text"] = raw_text[:_POST_TEXT_LIMIT]
+            slim["signal_keywords"] = matched
+
         result.append(slim)
     return result
 
