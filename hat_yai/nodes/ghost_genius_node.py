@@ -15,6 +15,7 @@ from typing import Optional
 
 from hat_yai.state import AuditState
 from hat_yai.tools import ghost_genius as gg
+from hat_yai.tools import evaboot
 from hat_yai.tools import supabase_db as db
 from hat_yai.tools.firecrawl import scrape_page
 
@@ -37,7 +38,7 @@ async def _step1_resolve_company(
     Returns (linkedin_company_id, linkedin_company_url) or (None, None).
     """
     # 1. Check Supabase cache
-    company = db.read_enriched_company(domain)
+    company = db.read_enriched_company(domain, company_name)
     if company and company.get("linkedin_private_url"):
         url = company["linkedin_private_url"]
         cid = gg.extract_linkedin_company_id(url)
@@ -90,12 +91,13 @@ async def _step1_resolve_company(
 
 def _step2_employees_growth(
     domain: str,
+    company_name: str = "",
 ) -> Optional[dict]:
     """Step 2: Check growth cache in enriched_companies.
 
     Returns cached growth data from employees_growth JSONB column, else None.
     """
-    company = db.read_enriched_company(domain)
+    company = db.read_enriched_company(domain, company_name)
     if not company:
         return None
 
@@ -108,16 +110,24 @@ def _step2_employees_growth(
 
 async def _step3_search_executives(
     linkedin_company_id: str,
+    company_name: str,
     audit_id: str,
     deal_id: str,
     domain: str,
 ) -> list[dict]:
     """Step 3: Search C-levels via Sales Navigator.
 
+    Primary: Ghost Genius. Fallback: Evaboot if GG returns 403.
     Current + past employees, dedupe by id, cap at 30 (current first).
     """
-    current = await gg.search_executives_current(linkedin_company_id)
-    past = await gg.search_executives_past(linkedin_company_id)
+    try:
+        current = await gg.search_executives_current(linkedin_company_id)
+        past = await gg.search_executives_past(linkedin_company_id)
+        logger.info("Step 3: Using Ghost Genius for executive search")
+    except Exception as e:
+        logger.warning(f"Step 3: Ghost Genius failed ({e}), falling back to Evaboot")
+        current, past = await evaboot.search_executives(linkedin_company_id, company_name)
+        logger.info("Step 3: Using Evaboot fallback for executive search")
 
     # Deduplicate by LinkedIn ID
     seen_ids: set[str] = set()
@@ -307,7 +317,7 @@ async def ghost_genius_node(state: AuditState) -> dict:
         })
 
         # Step 2: Employees Growth
-        growth = _step2_employees_growth(domain)
+        growth = _step2_employees_growth(domain, company_name)
         if growth is None:
             try:
                 growth = await gg.get_employees_growth(linkedin_company_url)
@@ -319,7 +329,7 @@ async def ghost_genius_node(state: AuditState) -> dict:
 
         # Step 3: Search C-levels
         executives = await _step3_search_executives(
-            linkedin_company_id, audit_id, deal_id, domain
+            linkedin_company_id, company_name, audit_id, deal_id, domain
         )
 
         # Step 4: Enrich profiles
