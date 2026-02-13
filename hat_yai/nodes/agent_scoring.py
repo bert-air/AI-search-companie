@@ -2,6 +2,7 @@
 
 Reads signals from all agent_reports, applies the 20-signal grille,
 computes score_total and data_quality_score.
+Signal validators can override LLM status based on parsed value fields.
 
 Spec reference: Section 7.7.
 """
@@ -10,6 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from typing import Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -70,6 +73,80 @@ SIGNAL_SOURCES: dict[str, str] = {
 }
 
 
+def _parse_months(text: str) -> Optional[float]:
+    """Best-effort: extract a duration in months from value/evidence text."""
+    text = text.lower().strip()
+    # "16 mois", "12 mois", "~30 mois"
+    m = re.search(r"(\d+(?:\.\d+)?)\s*mois", text)
+    if m:
+        return float(m.group(1))
+    # "2 ans", "1.5 ans"
+    m = re.search(r"(\d+(?:\.\d+)?)\s*an[s]?", text)
+    if m:
+        return float(m.group(1)) * 12
+    return None
+
+
+def _parse_number(text: str) -> Optional[float]:
+    """Best-effort: extract a number from value text (handles spaces, K, etc.)."""
+    text = text.lower().strip().replace("\u00a0", "").replace(" ", "")
+    # "10500", "10.500", "10k"
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*k", text)
+    if m:
+        return float(m.group(1).replace(",", ".")) * 1000
+    m = re.search(r"(\d+(?:\.\d+)?)", text.replace(",", ""))
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def _validate_recency(signal: dict, max_months: float) -> Optional[bool]:
+    """Validate that a 'new in role' signal is within the threshold."""
+    for field in ("value", "evidence"):
+        months = _parse_months(signal.get(field, ""))
+        if months is not None:
+            return months <= max_months
+    return None  # couldn't parse → keep LLM status
+
+
+def _validate_min_employees(signal: dict, threshold: int) -> Optional[bool]:
+    """Validate entreprise_plus_X: employees > threshold."""
+    for field in ("value", "evidence"):
+        n = _parse_number(signal.get(field, ""))
+        if n is not None:
+            return n > threshold
+    return None
+
+
+def _validate_max_employees(signal: dict, threshold: int) -> Optional[bool]:
+    """Validate entreprise_moins_X: employees < threshold."""
+    for field in ("value", "evidence"):
+        n = _parse_number(signal.get(field, ""))
+        if n is not None:
+            return n < threshold
+    return None
+
+
+def _validate_min_months(signal: dict, min_months: float) -> Optional[bool]:
+    """Validate dsi_en_poste_plus_5_ans: tenure > threshold."""
+    for field in ("value", "evidence"):
+        months = _parse_months(signal.get(field, ""))
+        if months is not None:
+            return months > min_months
+    return None
+
+
+# signal_id → validator function
+# Returns True (signal confirmed), False (override to NOT_DETECTED), or None (can't parse)
+SIGNAL_VALIDATORS = {
+    "nouveau_pdg_dg": lambda s: _validate_recency(s, 12),
+    "nouveau_dsi_dir_transfo": lambda s: _validate_recency(s, 12),
+    "entreprise_plus_1000": lambda s: _validate_min_employees(s, 1000),
+    "entreprise_moins_500": lambda s: _validate_max_employees(s, 500),
+    "dsi_en_poste_plus_5_ans": lambda s: _validate_min_months(s, 60),
+}
+
+
 def _compute_scoring(agent_reports: list[dict]) -> dict:
     """Deterministic scoring from agent signals."""
     # Collect all signals from all agents
@@ -97,6 +174,16 @@ def _compute_scoring(agent_reports: list[dict]) -> dict:
             status = "UNKNOWN"
             value = ""
             evidence = ""
+
+        # Threshold validation: override DETECTED if value fails check
+        if status == "DETECTED" and signal and signal_id in SIGNAL_VALIDATORS:
+            valid = SIGNAL_VALIDATORS[signal_id](signal)
+            if valid is False:
+                logger.warning(
+                    f"Scoring: {signal_id} overridden DETECTED→NOT_DETECTED "
+                    f"(value={value!r} failed threshold check)"
+                )
+                status = "NOT_DETECTED"
 
         if status == "DETECTED":
             score_total += points

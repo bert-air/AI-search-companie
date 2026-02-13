@@ -19,6 +19,10 @@ async def main():
         "stage_id": f"e2e_stage_{run_id}",
         "company_name": "Systra",
         "domain": "systra.com",
+        "sales_team": [
+            {"name": "Bertran Ruiz", "linkedin_slug": "bertran_ruiz", "role": "AE"},
+            {"name": "Thomas Poitau", "linkedin_slug": "thomas_poitau", "role": "AE"},
+        ],
     }
     print(f"\n{'='*60}")
     print(f"Starting E2E audit for: {input_data['company_name']} ({input_data['domain']})")
@@ -44,8 +48,8 @@ async def main():
         print(f"\n{'='*60}")
         print("FINAL REPORT:")
         print(f"{'='*60}")
-        print(report[:3000])
-        if len(report) > 3000:
+        print(report[:10000])
+        if len(report) > 10000:
             print(f"\n... [truncated, total {len(report)} chars]")
 
 

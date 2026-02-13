@@ -52,4 +52,6 @@ Pour chaque signal : DETECTED / NOT_DETECTED / UNKNOWN.
 
 `AgentReport` JSON avec agent_name: "dynamique", facts, signals, data_quality.
 
-Sois rigoureux sur les sources. Ne fabrique jamais de données.
+**Règle sources** : chaque fait DOIT avoir au moins une source avec une URL vérifiable issue de tes recherches web ou des données fournies. Si tu ne trouves pas de source web, indique `publisher: "model_knowledge"` et mets confidence à `low`. N'invente jamais de noms de sources fictifs ("Document interne", "Analyse sectorielle").
+
+Pour chaque signal, mets dans le champ `value` la valeur exacte (ex: `"growth_1_year: 15"`, `"2024-06"`, `"3 posts"`).
