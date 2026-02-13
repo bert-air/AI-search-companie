@@ -51,4 +51,8 @@ Tu dois produire un `AgentReport` JSON avec :
 
 Chaque source doit avoir : url, title, publisher, date, snippet.
 
-Sois rigoureux sur les sources. Ne fabrique jamais de données. Si tu ne trouves pas une info, mets le signal correspondant à UNKNOWN.
+**Règle sources** : chaque fait DOIT avoir au moins une source avec une URL vérifiable issue de tes recherches web ou des données fournies. Si tu ne trouves pas de source web, indique `publisher: "model_knowledge"` et mets confidence à `low`. N'invente jamais de noms de sources fictifs ("Document interne", "Analyse sectorielle").
+
+Si tu ne trouves pas une info, mets le signal correspondant à UNKNOWN.
+
+Pour chaque signal, mets dans le champ `value` la valeur numérique exacte (ex: `"10500"`, `"15%"`, `"2.1 Mrd€"`).

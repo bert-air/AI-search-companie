@@ -149,6 +149,10 @@ def _build_context(state: AuditState, agent_name: str, extra_context: Optional[d
         if state.get("ghost_genius_employees_growth"):
             parts.append(f"\n## Croissance effectifs\n```json\n{json.dumps(state['ghost_genius_employees_growth'], ensure_ascii=False, indent=2)}\n```")
 
+    # Include sales team for connexions agent
+    if agent_name == "connexions" and state.get("sales_team"):
+        parts.append(f"\n## Équipe commerciale AirSaas\n```json\n{json.dumps(state['sales_team'], ensure_ascii=False, indent=2)}\n```")
+
     if extra_context:
         parts.append(f"\n## Contexte additionnel\n```json\n{json.dumps(extra_context, ensure_ascii=False, indent=2)}\n```")
 
@@ -298,6 +302,7 @@ async def run_agent(
             logger.warning(f"Agent {agent_name}: retrying extraction with Opus (reason: {retry_reason})")
             report = await _run_extraction(use_opus=True)
 
+        _validate_sources(report)
         return {"agent_reports": [report.model_dump()]}
 
     except Exception as e:
@@ -347,6 +352,23 @@ def _find_tool(name: str, tools: list):
         if tool.name == name:
             return tool
     return None
+
+
+_FAKE_PUBLISHERS = {
+    "document interne", "analyse sectorielle", "étude sectorielle",
+    "rapport interne", "source interne", "analyse interne",
+}
+
+
+def _validate_sources(report: AgentReport) -> None:
+    """Post-extraction validation: degrade facts with no verifiable URL."""
+    for fact in report.facts:
+        has_real_url = any(s.url.strip() for s in fact.sources)
+        if not has_real_url:
+            fact.confidence = "low"
+        for source in fact.sources:
+            if source.publisher.lower().strip() in _FAKE_PUBLISHERS:
+                source.publisher = "model_knowledge"
 
 
 def _needs_retry(report: AgentReport, expected_signal_ids: list[str]) -> bool:
