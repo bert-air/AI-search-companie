@@ -19,6 +19,7 @@ async def main():
         "stage_id": f"e2e_stage_{run_id}",
         "company_name": "Systra",
         "domain": "systra.com",
+        "country": "France",
     }
     print(f"\n{'='*60}")
     print(f"Starting E2E audit for: {input_data['company_name']} ({input_data['domain']})")

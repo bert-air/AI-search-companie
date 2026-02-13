@@ -27,7 +27,7 @@ def _get_client() -> Client:
 def read_enriched_company(domain: str, company_name: str = "") -> Optional[dict]:
     """SELECT from enriched_companies by domain, falling back to name."""
     client = _get_client()
-    result = client.table("enriched_companies").select("*").ilike("domain", f"%{domain}%").limit(1).execute()
+    result = client.table("enriched_companies").select("*").ilike("domain", domain).limit(1).execute()
     if result.data:
         return result.data[0]
     # Fallback: search by company name (exact case-insensitive match)

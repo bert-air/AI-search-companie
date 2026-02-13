@@ -35,8 +35,12 @@ async def orchestrator_node(state: AuditState) -> dict:
 
     logger.info(f"Created audit report {report_id}")
 
+    # Default country to France if not provided
+    country = state.get("country") or "France"
+
     return {
         "audit_report_id": report_id,
+        "country": country,
         "ghost_genius_available": False,
         "agent_reports": [],
         "node_errors": {},

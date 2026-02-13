@@ -65,6 +65,15 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
         if name:
             report_updates[f"report_{name}"] = report
 
+    # Store prompts used for this run (reproducibility / versioning)
+    _AGENT_NAMES = ["finance", "entreprise", "dynamique", "comex_organisation", "comex_profils", "connexions", "scoring"]
+    for agent_name in _AGENT_NAMES:
+        try:
+            report_updates[f"prompt_{agent_name}"] = load_prompt(agent_name)
+        except Exception:
+            logger.warning(f"Could not load prompt for {agent_name}")
+    report_updates["prompt_synthesizer"] = system_prompt
+
     # Also store agent inputs for debug/replay
     report_updates["input_finance"] = {"company_name": company_name, "domain": state["domain"]}
     report_updates["input_entreprise"] = {"company_name": company_name, "domain": state["domain"]}

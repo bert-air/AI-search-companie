@@ -145,33 +145,62 @@ async def get_employees_growth(linkedin_company_url: str) -> dict:
 
 # --- Step 3: Search C-levels via Sales Navigator ---
 
-async def search_executives_current(linkedin_company_id: str) -> list[dict]:
+async def search_executives_current(linkedin_company_id: str, locations: str = "") -> list[dict]:
     """Search current employees at C-level via Sales Navigator.
 
-    GET /private/sales-navigator?account_id={id}&current_company={id}&seniority_level=310,320,300,220
+    GET /private/sales-navigator?account_id={id}&current_company={id}&seniority_level=310,320,300,220&locations={id}
     """
+    params: dict = {
+        "current_company": linkedin_company_id,
+        "seniority_level": "310,320,300,220",
+    }
+    if locations:
+        params["locations"] = locations
     result = await _get_with_rotation(
         "/private/sales-navigator",
-        params={
-            "current_company": linkedin_company_id,
-            "seniority_level": "310,320,300,220",
-        },
+        params=params,
         needs_account=True,
     )
     return result if isinstance(result, list) else result.get("data", [])
 
 
-async def search_executives_past(linkedin_company_id: str) -> list[dict]:
+async def search_executives_past(linkedin_company_id: str, locations: str = "") -> list[dict]:
     """Search past employees at C-level via Sales Navigator.
 
-    GET /private/sales-navigator?account_id={id}&past_company={id}&seniority_level=310,320,300,220
+    GET /private/sales-navigator?account_id={id}&past_company={id}&seniority_level=310,320,300,220&locations={id}
     """
+    params: dict = {
+        "past_company": linkedin_company_id,
+        "seniority_level": "310,320,300,220",
+    }
+    if locations:
+        params["locations"] = locations
     result = await _get_with_rotation(
         "/private/sales-navigator",
-        params={
-            "past_company": linkedin_company_id,
-            "seniority_level": "310,320,300,220",
-        },
+        params=params,
+        needs_account=True,
+    )
+    return result if isinstance(result, list) else result.get("data", [])
+
+
+async def search_executives_by_keywords(
+    linkedin_company_id: str,
+    keywords: str,
+    locations: str = "",
+) -> list[dict]:
+    """Search current employees by title keywords via Sales Navigator (no seniority filter).
+
+    GET /private/sales-navigator?account_id={id}&current_company={id}&keywords={kw}&locations={id}
+    """
+    params: dict = {
+        "current_company": linkedin_company_id,
+        "keywords": keywords,
+    }
+    if locations:
+        params["locations"] = locations
+    result = await _get_with_rotation(
+        "/private/sales-navigator",
+        params=params,
         needs_account=True,
     )
     return result if isinstance(result, list) else result.get("data", [])

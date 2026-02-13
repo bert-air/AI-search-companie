@@ -27,25 +27,39 @@ def _headers() -> dict[str, str]:
     }
 
 
+def _encode_title(text: str) -> str:
+    """Encode a title keyword for Sales Navigator URL (double-encode spaces)."""
+    return text.replace(" ", "%2520")
+
+
+def _build_region_filter(region_id: str, region_name: str) -> str:
+    """Build a REGION filter block for Sales Navigator URL."""
+    return (
+        f"(type%3AREGION%2Cvalues%3AList("
+        f"(id%3A{region_id}%2Ctext%3A{region_name}%2CselectionType%3AINCLUDED)))"
+    )
+
+
 def _build_sales_nav_url(
     company_id: str,
     company_name: str,
     filter_type: str = "CURRENT_COMPANY",
+    region_id: str = "",
+    region_name: str = "",
 ) -> str:
-    """Build a LinkedIn Sales Navigator search URL.
+    """Build a LinkedIn Sales Navigator search URL with seniority filter.
 
     Args:
         company_id: LinkedIn organization ID (same as GG company ID).
         company_name: Company name for display in the filter.
         filter_type: CURRENT_COMPANY or PAST_COMPANY.
+        region_id: LinkedIn region ID (e.g. "105015875" for France).
+        region_name: Region display name (e.g. "France").
     """
     search_id = random.randint(1000000000, 9999999999)
 
     # Seniority levels: 310=CXO, 300=VP, 320=Owner/Partner, 130=Strategic
-    url = (
-        "https://www.linkedin.com/sales/search/people?query="
-        f"(recentSearchParam%3A(id%3A{search_id}%2CdoLogHistory%3Atrue)%2C"
-        "filters%3AList("
+    filters = (
         f"(type%3A{filter_type}%2Cvalues%3AList("
         f"(id%3Aurn%253Ali%253Aorganization%253A{company_id}%2C"
         f"text%3A{company_name}%2C"
@@ -54,7 +68,62 @@ def _build_sales_nav_url(
         "(id%3A310%2Ctext%3ACXO%2CselectionType%3AINCLUDED)%2C"
         "(id%3A300%2Ctext%3AVP%2CselectionType%3AINCLUDED)%2C"
         "(id%3A320%2Ctext%3AOwner%2CselectionType%3AINCLUDED)%2C"
-        "(id%3A130%2Ctext%3AStrategic%2CselectionType%3AINCLUDED)))))"
+        "(id%3A130%2Ctext%3AStrategic%2CselectionType%3AINCLUDED)))"
+    )
+
+    if region_id and region_name:
+        filters += "%2C" + _build_region_filter(region_id, region_name)
+
+    url = (
+        "https://www.linkedin.com/sales/search/people?query="
+        f"(recentSearchParam%3A(id%3A{search_id}%2CdoLogHistory%3Atrue)%2C"
+        f"filters%3AList({filters}))"
+        "&viewAllFilters=true"
+    )
+    return url
+
+
+def _build_sales_nav_title_url(
+    company_id: str,
+    company_name: str,
+    title_keywords: list[str],
+    region_id: str = "",
+    region_name: str = "",
+) -> str:
+    """Build a Sales Navigator search URL with CURRENT_TITLE filter (no seniority).
+
+    Args:
+        company_id: LinkedIn organization ID.
+        company_name: Company name for display.
+        title_keywords: List of title keywords (e.g. ["PMO", "manager IT"]).
+        region_id: LinkedIn region ID.
+        region_name: Region display name.
+    """
+    search_id = random.randint(1000000000, 9999999999)
+
+    # Company filter
+    filters = (
+        "(type%3ACURRENT_COMPANY%2Cvalues%3AList("
+        f"(id%3Aurn%253Ali%253Aorganization%253A{company_id}%2C"
+        f"text%3A{company_name}%2C"
+        "selectionType%3AINCLUDED%2Cparent%3A(id%3A0))))"
+    )
+
+    # Title keywords filter
+    title_values = "%2C".join(
+        f"(text%3A{_encode_title(kw)}%2CselectionType%3AINCLUDED)"
+        for kw in title_keywords
+    )
+    filters += f"%2C(type%3ACURRENT_TITLE%2Cvalues%3AList({title_values}))"
+
+    # Region filter
+    if region_id and region_name:
+        filters += "%2C" + _build_region_filter(region_id, region_name)
+
+    url = (
+        "https://www.linkedin.com/sales/search/people?query="
+        f"(recentSearchParam%3A(id%3A{search_id}%2CdoLogHistory%3Atrue)%2C"
+        f"filters%3AList({filters}))"
         "&viewAllFilters=true"
     )
     return url
@@ -129,6 +198,8 @@ def _prospect_to_exec(prospect: dict, is_current: bool) -> dict:
 async def search_executives(
     linkedin_company_id: str,
     company_name: str,
+    region_id: str = "",
+    region_name: str = "",
 ) -> tuple[list[dict], list[dict]]:
     """Search C-level executives via Evaboot (current + past).
 
@@ -139,8 +210,12 @@ async def search_executives(
         return [], []
 
     # Launch both extractions in parallel
-    current_url = _build_sales_nav_url(linkedin_company_id, company_name, "CURRENT_COMPANY")
-    past_url = _build_sales_nav_url(linkedin_company_id, company_name, "PAST_COMPANY")
+    current_url = _build_sales_nav_url(
+        linkedin_company_id, company_name, "CURRENT_COMPANY", region_id, region_name,
+    )
+    past_url = _build_sales_nav_url(
+        linkedin_company_id, company_name, "PAST_COMPANY", region_id, region_name,
+    )
 
     current_id, past_id = await asyncio.gather(
         _create_extraction(current_url, f"{company_name}_current_execs"),
@@ -161,3 +236,33 @@ async def search_executives(
 
     logger.info(f"Evaboot: {len(current)} current + {len(past)} past executives")
     return current, past
+
+
+async def search_executives_by_keywords(
+    linkedin_company_id: str,
+    company_name: str,
+    title_keywords: list[str],
+    region_id: str = "",
+    region_name: str = "",
+) -> list[dict]:
+    """Search current employees by title keywords via Evaboot (no seniority filter).
+
+    Returns list of executives in the same format as GG.
+    """
+    if not settings.evaboot_api_key:
+        logger.warning("Evaboot API key not configured, skipping keyword fallback")
+        return []
+
+    url = _build_sales_nav_title_url(
+        linkedin_company_id, company_name, title_keywords, region_id, region_name,
+    )
+
+    extraction_id = await _create_extraction(url, f"{company_name}_keyword_execs")
+    if not extraction_id:
+        return []
+
+    prospects = await _poll_extraction(extraction_id)
+    results = [_prospect_to_exec(p, True) for p in prospects if p.get("Matches Filters") == "YES"]
+
+    logger.info(f"Evaboot keywords: {len(results)} executives found")
+    return results

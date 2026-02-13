@@ -21,6 +21,7 @@ class AuditState(TypedDict):
     stage_id: str
     company_name: str
     domain: str
+    country: str  # default "France", used for Sales Navigator region filter
 
     # -- Audit report row ID (set once by orchestrator) --
     audit_report_id: str
