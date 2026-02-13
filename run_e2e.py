@@ -5,6 +5,8 @@ import json
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+# Show analysis text for debugging
+logging.getLogger("hat_yai.utils.agent_runner").setLevel(logging.DEBUG)
 
 from hat_yai.graph import graph
 
@@ -15,8 +17,8 @@ async def main():
     input_data = {
         "deal_id": f"e2e_{run_id}",
         "stage_id": f"e2e_stage_{run_id}",
-        "company_name": "Altavia",
-        "domain": "altavia.com",
+        "company_name": "Systra",
+        "domain": "systra.com",
     }
     print(f"\n{'='*60}")
     print(f"Starting E2E audit for: {input_data['company_name']} ({input_data['domain']})")

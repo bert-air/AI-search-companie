@@ -217,46 +217,86 @@ async def run_agent(
             # No tool calls — agent is done
             break
 
-        # Two-step extraction:
-        # Step A — ask the LLM to produce a concise analysis with explicit signal verdicts
+        # Two-step extraction with automatic retry
         signals_section = _extract_signals_section(system_prompt)
-        analysis_prompt = (
-            "Résume ton analyse en 2000 mots max. Pour chaque signal ci-dessous, "
-            "indique explicitement : signal_id → DETECTED / NOT_DETECTED / UNKNOWN + justification courte.\n"
-            "Base-toi sur TOUTES les données (contexte fourni + résultats web). "
-            "Ne mets UNKNOWN que si tu n'as vraiment aucune donnée pertinente.\n\n"
-        )
-        if signals_section:
-            analysis_prompt += signals_section + "\n"
-
-        analysis_response = await llm.ainvoke(messages + [HumanMessage(content=analysis_prompt)])
-        analysis_text = analysis_response.content if isinstance(analysis_response.content, str) else str(analysis_response.content)
-        logger.info(f"Agent {agent_name}: analysis step produced {len(analysis_text)} chars")
-
-        # Step B — extract structured output from the concise analysis only
         signal_ids = _extract_signal_ids(system_prompt)
-        extraction_llm = get_fast_llm(max_tokens=4096).with_structured_output(AgentReport)
-        extraction_instruction = (
-            "Convertis l'analyse ci-dessous en AgentReport JSON structuré.\n\n"
-            "RÈGLES CRITIQUES pour le champ signals :\n"
-        )
-        if signal_ids:
-            extraction_instruction += (
-                f"- Tu DOIS inclure exactement ces signal_id : {signal_ids}\n"
-                "- Pour chaque signal, extrais le status (DETECTED/NOT_DETECTED/UNKNOWN), "
-                "l'evidence et la confidence depuis l'analyse.\n"
-                "- Ne mets UNKNOWN que si l'analyse ne contient AUCUNE information sur ce signal.\n"
-            )
-        else:
-            extraction_instruction += "- Cet agent n'émet aucun signal. Le champ signals doit être [].\n"
-        extraction_instruction += f"\n---\n\n{analysis_text}"
 
-        extraction_messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=extraction_instruction),
-        ]
-        report: AgentReport = await extraction_llm.ainvoke(extraction_messages)
-        report.agent_name = agent_name
+        async def _run_extraction(use_opus: bool = False) -> AgentReport:
+            """Execute Step A (analysis) + Step B (structured extraction).
+
+            Args:
+                use_opus: Force Opus for both steps (used on retry).
+            """
+            # Step A — concise analysis with explicit signal verdicts
+            step_a_llm = get_llm(max_tokens=8192) if use_opus else llm
+            analysis_prompt = (
+                "Résume ton analyse en 2000 mots max.\n\n"
+                "OBLIGATION : termine TOUJOURS ton analyse par cette section exacte :\n\n"
+                "## Verdict des signaux\n"
+                "Une ligne par signal au format : signal_id → DETECTED / NOT_DETECTED / UNKNOWN | evidence courte\n\n"
+                "Base-toi sur TOUTES les données (contexte fourni + résultats web). "
+                "Ne mets UNKNOWN que si tu n'as vraiment aucune donnée pertinente.\n\n"
+            )
+            if signals_section:
+                analysis_prompt += signals_section + "\n"
+
+            analysis_response = await step_a_llm.ainvoke(
+                messages + [HumanMessage(content=analysis_prompt)]
+            )
+            analysis_text = (
+                analysis_response.content
+                if isinstance(analysis_response.content, str)
+                else str(analysis_response.content)
+            )
+            logger.info(f"Agent {agent_name}: analysis step produced {len(analysis_text)} chars (opus={use_opus})")
+            logger.debug(f"Agent {agent_name}: analysis text:\n{analysis_text[:5000]}")
+
+            # Step B — structured extraction
+            if use_opus or agent_name == "comex_organisation":
+                ext_llm = get_llm(max_tokens=4096).with_structured_output(AgentReport)
+            else:
+                ext_llm = get_fast_llm(max_tokens=4096).with_structured_output(AgentReport)
+
+            extraction_instruction = (
+                "Convertis l'analyse ci-dessous en AgentReport JSON structuré.\n\n"
+                "PRIORITÉ ABSOLUE — le champ `signals` est le plus important :\n"
+            )
+            if signal_ids:
+                extraction_instruction += (
+                    f"- Tu DOIS inclure exactement ces signal_id : {signal_ids}\n"
+                    "- Pour chaque signal, extrais le status (DETECTED/NOT_DETECTED/UNKNOWN), "
+                    "l'evidence et la confidence depuis l'analyse.\n"
+                    "- Ne mets UNKNOWN que si l'analyse ne contient AUCUNE information sur ce signal.\n"
+                    "- VÉRIFIE que la liste signals contient bien {n} éléments avant de terminer.\n".format(n=len(signal_ids))
+                )
+            else:
+                extraction_instruction += "- Cet agent n'émet aucun signal. Le champ signals doit être [].\n"
+            extraction_instruction += (
+                "\nPour les facts : garde-les concis (5 maximum, 1-2 phrases par fact).\n"
+                f"\n---\n\n{analysis_text}"
+            )
+
+            report: AgentReport = await ext_llm.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=extraction_instruction),
+            ])
+            report.agent_name = agent_name
+            return report
+
+        # --- Attempt 1: default models ---
+        retry_reason = None
+        try:
+            report = await _run_extraction(use_opus=False)
+            if _needs_retry(report, signal_ids):
+                retry_reason = "all signals UNKNOWN with empty evidence"
+        except Exception as e:
+            retry_reason = f"extraction failed: {e}"
+            logger.warning(f"Agent {agent_name}: extraction failed ({e}), will retry with Opus")
+
+        # --- Attempt 2: retry with Opus if needed ---
+        if retry_reason:
+            logger.warning(f"Agent {agent_name}: retrying extraction with Opus (reason: {retry_reason})")
+            report = await _run_extraction(use_opus=True)
 
         return {"agent_reports": [report.model_dump()]}
 
@@ -307,3 +347,19 @@ def _find_tool(name: str, tools: list):
         if tool.name == name:
             return tool
     return None
+
+
+def _needs_retry(report: AgentReport, expected_signal_ids: list[str]) -> bool:
+    """Check if extraction produced no useful signal data and should be retried.
+
+    Returns True if ALL expected signals have status UNKNOWN with empty evidence.
+    Returns False if there are no expected signals or at least one signal has data.
+    """
+    if not expected_signal_ids:
+        return False
+    report_signals = {s.signal_id: s for s in report.signals}
+    for sid in expected_signal_ids:
+        sig = report_signals.get(sid)
+        if sig and (sig.status != "UNKNOWN" or (sig.evidence and sig.evidence.strip())):
+            return False
+    return True

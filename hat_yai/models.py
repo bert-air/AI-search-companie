@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class Source(BaseModel):
-    url: str
+    url: str = ""
     title: str = ""
     publisher: str = ""
     date: str = ""
