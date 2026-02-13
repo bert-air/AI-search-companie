@@ -21,6 +21,16 @@ def get_llm(temperature: float = 0, max_tokens: int = 4096) -> ChatAnthropic:
     )
 
 
+def get_fast_llm(temperature: float = 0, max_tokens: int = 4096) -> ChatAnthropic:
+    """Create a ChatAnthropic instance for Claude Sonnet (faster, cheaper)."""
+    return ChatAnthropic(
+        model="claude-sonnet-4-5-20250929",
+        anthropic_api_key=settings.anthropic_api_key,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
 def load_prompt(agent_name: str) -> str:
     """Load a system prompt from prompts/{agent_name}.md"""
     path = PROMPTS_DIR / f"{agent_name}.md"

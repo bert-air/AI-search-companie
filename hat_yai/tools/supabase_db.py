@@ -24,30 +24,52 @@ def _get_client() -> Client:
 
 # --- enriched_companies (existing table, read + update growth) ---
 
-def read_enriched_company(domain: str) -> Optional[dict]:
-    """SELECT from enriched_companies WHERE domain LIKE '%{domain}%'"""
+def read_enriched_company(domain: str, company_name: str = "") -> Optional[dict]:
+    """SELECT from enriched_companies by domain, falling back to name."""
     client = _get_client()
     result = client.table("enriched_companies").select("*").ilike("domain", f"%{domain}%").limit(1).execute()
-    return result.data[0] if result.data else None
+    if result.data:
+        return result.data[0]
+    # Fallback: search by company name (exact case-insensitive match)
+    if company_name:
+        result = client.table("enriched_companies").select("*").ilike("name", company_name).limit(1).execute()
+        if result.data:
+            return result.data[0]
+    return None
 
 
-def update_enriched_companies_growth(domain: str, growth_data: dict) -> None:
-    """UPDATE enriched_companies SET employees_growth (JSONB) WHERE domain LIKE '%{domain}%'"""
+def update_enriched_companies_growth(domain: str, growth_data: dict, company_name: str = "") -> None:
+    """UPDATE enriched_companies SET employees_growth. Uses read_enriched_company
+    to resolve the row first (handles domain mismatches via name fallback)."""
+    company = read_enriched_company(domain, company_name)
+    if not company:
+        logger.warning(f"update_enriched_companies_growth: no row found for domain={domain}, name={company_name}")
+        return
     client = _get_client()
     client.table("enriched_companies").update({
         "employees_growth": growth_data,
-    }).ilike("domain", f"%{domain}%").execute()
+    }).eq("linkedin_private_url", company["linkedin_private_url"]).execute()
 
 
 # --- enriched_contacts (existing table, read only) ---
 
-def read_enriched_contact(linkedin_private_url: str) -> Optional[dict]:
-    """SELECT from enriched_contacts WHERE linkedin_private_url = '{url}'"""
+def read_enriched_contact(linkedin_url: str) -> Optional[dict]:
+    """SELECT from enriched_contacts by linkedin_private_url or linkedin_profile_url."""
     client = _get_client()
     result = (
         client.table("enriched_contacts")
         .select("*")
-        .eq("linkedin_private_url", linkedin_private_url)
+        .eq("linkedin_private_url", linkedin_url)
+        .limit(1)
+        .execute()
+    )
+    if result.data:
+        return result.data[0]
+    # Fallback: search by public profile URL
+    result = (
+        client.table("enriched_contacts")
+        .select("*")
+        .eq("linkedin_profile_url", linkedin_url)
         .limit(1)
         .execute()
     )
@@ -60,7 +82,13 @@ def is_contact_fresh(contact: dict, max_age_days: int = 100) -> bool:
     if not updated_at:
         return False
     if isinstance(updated_at, str):
-        updated_at = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        # Handle both "2026-02-12T09:01:57.479" and "2026-02-12T09:01:57Z"
+        if "Z" in updated_at:
+            updated_at = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        elif "+" not in updated_at:
+            updated_at = datetime.fromisoformat(updated_at).replace(tzinfo=timezone.utc)
+        else:
+            updated_at = datetime.fromisoformat(updated_at)
     cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
     return updated_at > cutoff
 

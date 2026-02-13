@@ -10,17 +10,122 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
 from hat_yai.models import AgentReport
 from hat_yai.state import AuditState
-from hat_yai.utils.llm import get_llm, load_prompt
+from hat_yai.utils.llm import get_llm, get_fast_llm, load_prompt
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
+_MAX_TOOL_RESULT_CHARS = 20_000
+_MAX_CONTEXT_CHARS = 150_000
+
+# Fields to keep per agent when slimming executive data
+_EXEC_BASE_FIELDS = {"full_name", "headline", "current_job_title", "is_current_employee", "url"}
+_EXEC_FIELDS_BY_AGENT = {
+    "comex_organisation": _EXEC_BASE_FIELDS | {"experiences"},
+    "comex_profils": _EXEC_BASE_FIELDS | {"experiences", "skills"},
+    "connexions": {"full_name", "headline", "connected_with"},
+    "dynamique": _EXEC_BASE_FIELDS,
+}
+
+_MAX_EXECS = 25
+_MAX_POSTS = 80
+_POST_TEXT_LIMIT = 500
+
+# Signal-relevant keywords for LinkedIn post filtering.
+# Posts matching these keywords keep their full text (500 chars);
+# non-matching posts keep only metadata (author, date, reactions).
+# See docs/SIGNAL_KEYWORDS.md for the full reference.
+_SIGNAL_KEYWORDS = [
+    # Transformation / Digital
+    "transformation", "transfo", "digitale", "digital", "innovation",
+    "modernisation", "dématérialisation", "numérique", "industrie 4.0",
+    # IT / DSI / Infrastructure
+    "dsi", "cio", "cto", "directeur des systèmes", "directeur informatique",
+    "directeur technique", "chief information", "chief technology",
+    "erp", "sap", "salesforce", "cloud", "aws", "azure", "gcp",
+    "migration", "cybersécurité", "cyber", "infra", "infrastructure",
+    "servicenow", "jira", "monday", "planview", "ms project",
+    "devops", "saas", "data", "ia ", "intelligence artificielle",
+    # PMO / Gestion de projets
+    "pmo", "bureau de projets", "project management", "program manager",
+    "programme manager", "portefeuille de projets", "gestion de projets",
+    "chef de projet", "directeur de programme", "roadmap", "feuille de route",
+    # Recrutement / RH
+    "recrute", "recrutement", "hiring", "rejoindre", "rejoignez",
+    "cdi", "embauche", "talent", "onboarding",
+    # Stratégie / Plans
+    "plan stratégique", "stratégie", "vision", "ambition",
+    "plan directeur", "schéma directeur", "cap ", "objectif stratégique",
+    # M&A / Restructuration
+    "acquisition", "fusion", "rachat", "cession", "m&a",
+    "pse", "licenciement", "plan social", "restructuration",
+    "réorganisation", "plan de sauvegarde",
+    # Finance / Croissance
+    "chiffre d'affaires", "croissance", "résultats", "levée de fonds",
+    "investissement", "budget it", "budget informatique",
+]
+
+
+def _slim_executive(exec_data: dict, agent_name: str) -> dict:
+    """Keep only the fields relevant to the agent. Trim experience descriptions."""
+    fields = _EXEC_FIELDS_BY_AGENT.get(agent_name, _EXEC_BASE_FIELDS)
+    slim = {k: v for k, v in exec_data.items() if k in fields}
+
+    # Keep only the 3 most recent experiences (list is ordered most recent first)
+    if "experiences" in slim and isinstance(slim["experiences"], list):
+        slim["experiences"] = slim["experiences"][:3]
+
+    return slim
+
+
+def _match_signal_keywords(text: str) -> list[str]:
+    """Return signal keywords found in text (case-insensitive)."""
+    text_lower = text.lower()
+    return [kw for kw in _SIGNAL_KEYWORDS if kw in text_lower]
+
+
+def _slim_posts(posts: list[dict]) -> list[dict]:
+    """Filter posts: keep full text for signal-relevant posts, metadata-only for others.
+
+    - Sorted by date (recent first) instead of engagement
+    - Capped at _MAX_POSTS (80)
+    - Posts matching signal keywords → full text (500 chars) + matched keywords
+    - Other posts → metadata only (author, date, reactions)
+    """
+    # Sort by date (recent first), fallback to empty string
+    sorted_posts = sorted(
+        (p for p in posts if isinstance(p, dict)),
+        key=lambda p: p.get("published_at") or "",
+        reverse=True,
+    )
+    result = []
+    for post in sorted_posts[:_MAX_POSTS]:
+        # GG API may return text as nested object — ensure we get a string
+        raw_text = post.get("text") or post.get("post_text") or ""
+        if not isinstance(raw_text, str):
+            raw_text = str(raw_text) if raw_text else ""
+
+        slim = {
+            "full_name": post.get("full_name", ""),
+            "published_at": post.get("published_at"),
+            "total_reactions": post.get("total_reactions", 0),
+            "total_comments": post.get("total_comments", 0),
+        }
+
+        matched = _match_signal_keywords(raw_text)
+        if matched:
+            slim["post_text"] = raw_text[:_POST_TEXT_LIMIT]
+            slim["signal_keywords"] = matched
+
+        result.append(slim)
+    return result
 
 
 def _build_context(state: AuditState, agent_name: str, extra_context: Optional[dict] = None) -> str:
@@ -36,9 +141,11 @@ def _build_context(state: AuditState, agent_name: str, extra_context: Optional[d
     gg_agents = {"comex_organisation", "comex_profils", "connexions", "dynamique"}
     if agent_name in gg_agents and state.get("ghost_genius_available"):
         if state.get("ghost_genius_executives"):
-            parts.append(f"\n## Dirigeants (Ghost Genius)\n```json\n{json.dumps(state['ghost_genius_executives'], ensure_ascii=False, indent=2)}\n```")
-        if state.get("ghost_genius_posts"):
-            parts.append(f"\n## Posts LinkedIn récents\n```json\n{json.dumps(state['ghost_genius_posts'], ensure_ascii=False, indent=2)}\n```")
+            execs = [_slim_executive(e, agent_name) for e in state["ghost_genius_executives"][:_MAX_EXECS]]
+            parts.append(f"\n## Dirigeants (Ghost Genius)\n```json\n{json.dumps(execs, ensure_ascii=False, indent=2)}\n```")
+        if agent_name != "connexions" and state.get("ghost_genius_posts"):
+            posts = _slim_posts(state["ghost_genius_posts"])
+            parts.append(f"\n## Posts LinkedIn récents\n```json\n{json.dumps(posts, ensure_ascii=False, indent=2)}\n```")
         if state.get("ghost_genius_employees_growth"):
             parts.append(f"\n## Croissance effectifs\n```json\n{json.dumps(state['ghost_genius_employees_growth'], ensure_ascii=False, indent=2)}\n```")
 
@@ -71,6 +178,12 @@ async def run_agent(
 
         # Tool-calling loop
         for iteration in range(MAX_TOOL_ITERATIONS):
+            # Context size guard — stop if accumulated context is too large
+            ctx_size = _estimate_context_chars(messages)
+            if ctx_size > _MAX_CONTEXT_CHARS:
+                logger.warning(f"Agent {agent_name}: context size {ctx_size} exceeds limit, stopping tool loop")
+                break
+
             if tools:
                 response = await llm.bind_tools(tools).ainvoke(messages)
             else:
@@ -90,8 +203,13 @@ async def run_agent(
                     else:
                         result = f"Error: unknown tool {tc['name']}"
 
+                    # Truncate oversized tool results
+                    result_str = str(result)
+                    if len(result_str) > _MAX_TOOL_RESULT_CHARS:
+                        result_str = result_str[:_MAX_TOOL_RESULT_CHARS] + "\n\n[… résultat tronqué]"
+
                     messages.append(ToolMessage(
-                        content=str(result),
+                        content=result_str,
                         tool_call_id=tc["id"],
                     ))
                 continue
@@ -99,13 +217,86 @@ async def run_agent(
             # No tool calls — agent is done
             break
 
-        # Extract structured output
-        extraction_llm = get_llm(max_tokens=4096).with_structured_output(AgentReport)
-        extraction_messages = messages + [
-            HumanMessage(content="Maintenant, produis ton rapport final au format JSON structuré AgentReport."),
-        ]
-        report: AgentReport = await extraction_llm.ainvoke(extraction_messages)
-        report.agent_name = agent_name
+        # Two-step extraction with automatic retry
+        signals_section = _extract_signals_section(system_prompt)
+        signal_ids = _extract_signal_ids(system_prompt)
+
+        async def _run_extraction(use_opus: bool = False) -> AgentReport:
+            """Execute Step A (analysis) + Step B (structured extraction).
+
+            Args:
+                use_opus: Force Opus for both steps (used on retry).
+            """
+            # Step A — concise analysis with explicit signal verdicts
+            step_a_llm = get_llm(max_tokens=8192) if use_opus else llm
+            analysis_prompt = (
+                "Résume ton analyse en 2000 mots max.\n\n"
+                "OBLIGATION : termine TOUJOURS ton analyse par cette section exacte :\n\n"
+                "## Verdict des signaux\n"
+                "Une ligne par signal au format : signal_id → DETECTED / NOT_DETECTED / UNKNOWN | evidence courte\n\n"
+                "Base-toi sur TOUTES les données (contexte fourni + résultats web). "
+                "Ne mets UNKNOWN que si tu n'as vraiment aucune donnée pertinente.\n\n"
+            )
+            if signals_section:
+                analysis_prompt += signals_section + "\n"
+
+            analysis_response = await step_a_llm.ainvoke(
+                messages + [HumanMessage(content=analysis_prompt)]
+            )
+            analysis_text = (
+                analysis_response.content
+                if isinstance(analysis_response.content, str)
+                else str(analysis_response.content)
+            )
+            logger.info(f"Agent {agent_name}: analysis step produced {len(analysis_text)} chars (opus={use_opus})")
+            logger.debug(f"Agent {agent_name}: analysis text:\n{analysis_text[:5000]}")
+
+            # Step B — structured extraction
+            if use_opus or agent_name == "comex_organisation":
+                ext_llm = get_llm(max_tokens=4096).with_structured_output(AgentReport)
+            else:
+                ext_llm = get_fast_llm(max_tokens=4096).with_structured_output(AgentReport)
+
+            extraction_instruction = (
+                "Convertis l'analyse ci-dessous en AgentReport JSON structuré.\n\n"
+                "PRIORITÉ ABSOLUE — le champ `signals` est le plus important :\n"
+            )
+            if signal_ids:
+                extraction_instruction += (
+                    f"- Tu DOIS inclure exactement ces signal_id : {signal_ids}\n"
+                    "- Pour chaque signal, extrais le status (DETECTED/NOT_DETECTED/UNKNOWN), "
+                    "l'evidence et la confidence depuis l'analyse.\n"
+                    "- Ne mets UNKNOWN que si l'analyse ne contient AUCUNE information sur ce signal.\n"
+                    "- VÉRIFIE que la liste signals contient bien {n} éléments avant de terminer.\n".format(n=len(signal_ids))
+                )
+            else:
+                extraction_instruction += "- Cet agent n'émet aucun signal. Le champ signals doit être [].\n"
+            extraction_instruction += (
+                "\nPour les facts : garde-les concis (5 maximum, 1-2 phrases par fact).\n"
+                f"\n---\n\n{analysis_text}"
+            )
+
+            report: AgentReport = await ext_llm.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=extraction_instruction),
+            ])
+            report.agent_name = agent_name
+            return report
+
+        # --- Attempt 1: default models ---
+        retry_reason = None
+        try:
+            report = await _run_extraction(use_opus=False)
+            if _needs_retry(report, signal_ids):
+                retry_reason = "all signals UNKNOWN with empty evidence"
+        except Exception as e:
+            retry_reason = f"extraction failed: {e}"
+            logger.warning(f"Agent {agent_name}: extraction failed ({e}), will retry with Opus")
+
+        # --- Attempt 2: retry with Opus if needed ---
+        if retry_reason:
+            logger.warning(f"Agent {agent_name}: retrying extraction with Opus (reason: {retry_reason})")
+            report = await _run_extraction(use_opus=True)
 
         return {"agent_reports": [report.model_dump()]}
 
@@ -121,9 +312,54 @@ async def run_agent(
         }
 
 
+def _extract_signals_section(prompt: str) -> str:
+    """Extract the signals table section from an agent's system prompt."""
+    match = re.search(r"(## Signaux à émettre.*?)(?=\n## |\Z)", prompt, re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+
+def _extract_signal_ids(prompt: str) -> list[str]:
+    """Extract signal_id values from the signals table in the prompt."""
+    signals_section = _extract_signals_section(prompt)
+    if not signals_section:
+        return []
+    # Match backtick-wrapped signal_ids in markdown table rows (preceded by |)
+    return re.findall(r"\|\s*`(\w+)`", signals_section)
+
+
+def _estimate_context_chars(messages: list) -> int:
+    """Rough estimate of total context size in characters."""
+    total = 0
+    for msg in messages:
+        content = getattr(msg, "content", "")
+        if isinstance(content, str):
+            total += len(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    total += len(str(block))
+    return total
+
+
 def _find_tool(name: str, tools: list):
     """Find a tool by name in the tools list."""
     for tool in tools:
         if tool.name == name:
             return tool
     return None
+
+
+def _needs_retry(report: AgentReport, expected_signal_ids: list[str]) -> bool:
+    """Check if extraction produced no useful signal data and should be retried.
+
+    Returns True if ALL expected signals have status UNKNOWN with empty evidence.
+    Returns False if there are no expected signals or at least one signal has data.
+    """
+    if not expected_signal_ids:
+        return False
+    report_signals = {s.signal_id: s for s in report.signals}
+    for sid in expected_signal_ids:
+        sig = report_signals.get(sid)
+        if sig and (sig.status != "UNKNOWN" or (sig.evidence and sig.evidence.strip())):
+            return False
+    return True

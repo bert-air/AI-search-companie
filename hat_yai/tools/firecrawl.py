@@ -11,6 +11,8 @@ from firecrawl import FirecrawlApp
 
 from hat_yai.config import settings
 
+_SCRAPE_MAX_CHARS = 15_000
+
 
 def _get_app() -> FirecrawlApp:
     return FirecrawlApp(api_key=settings.firecrawl_api_key)
@@ -30,11 +32,14 @@ def search_web(query: str) -> list[dict]:
 
 @tool
 def scrape_page(url: str) -> str:
-    """Scrape a web page and return its content as markdown text.
+    """Scrape a web page and return its content as markdown text (truncated to ~15 000 chars).
 
     Args:
         url: The URL to scrape.
     """
     app = _get_app()
     result = app.scrape(url, formats=["markdown"])
-    return result.markdown or ""
+    text = result.markdown or ""
+    if len(text) > _SCRAPE_MAX_CHARS:
+        text = text[:_SCRAPE_MAX_CHARS] + "\n\n[… contenu tronqué]"
+    return text
