@@ -48,4 +48,4 @@ Tu dois produire un `AgentReport` JSON avec :
 
 Chaque source doit avoir : url, title, publisher, date, snippet.
 
-Sois rigoureux sur les sources. Ne fabrique jamais de données.
+**Règle sources** : chaque fait DOIT avoir au moins une source avec une URL vérifiable issue de tes recherches web ou des données fournies. Si tu ne trouves pas de source web, indique `publisher: "model_knowledge"` et mets confidence à `low`. N'invente jamais de noms de sources fictifs ("Document interne", "Analyse sectorielle").

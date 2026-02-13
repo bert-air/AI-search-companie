@@ -23,6 +23,9 @@ class AuditState(TypedDict):
     domain: str
     country: str  # default "France", used for Sales Navigator region filter
 
+    # -- Optional sales team for connexions matching --
+    sales_team: Optional[list[dict]]
+
     # -- Audit report row ID (set once by orchestrator) --
     audit_report_id: str
 

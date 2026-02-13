@@ -8,8 +8,12 @@ Identifier si un sales AirSaas est déjà connecté à un dirigeant de l'entrepr
 
 ## Données fournies
 
-Les dirigeants sont dans ton contexte avec leur champ `connected_with`.
+**Dirigeants** : dans ton contexte avec leur champ `connected_with`.
 Ce champ contient une liste de slugs des sales AirSaas connectés, par exemple : `["bertran_ruiz", "thomas_poitau"]`.
+
+**Équipe commerciale AirSaas** (si fournie) : liste des sales avec `name`, `linkedin_slug` et `role`. Utilise cette liste pour :
+- Mapper chaque slug `connected_with` à un nom de sales
+- Produire une matrice explicite : chaque sales × chaque dirigeant C-level → connecté / non connecté
 
 ## Logique
 
