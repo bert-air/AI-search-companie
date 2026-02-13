@@ -13,6 +13,7 @@ import logging
 import re
 from typing import Optional
 
+from hat_yai.config import LINKEDIN_REGION_IDS, TITLE_SEARCH_KEYWORDS
 from hat_yai.state import AuditState
 from hat_yai.tools import ghost_genius as gg
 from hat_yai.tools import evaboot
@@ -114,25 +115,51 @@ async def _step3_search_executives(
     audit_id: str,
     deal_id: str,
     domain: str,
+    region_id: str = "",
+    region_name: str = "",
 ) -> list[dict]:
-    """Step 3: Search C-levels via Sales Navigator.
+    """Step 3: Search executives via Sales Navigator.
+
+    Two search passes:
+      3a) Seniority-based (current + past, CXO/VP/Owner/Director)
+      3b) Keyword-based (current only, title keywords like PMO, manager IT, etc.)
 
     Primary: Ghost Genius. Fallback: Evaboot if GG returns 403.
-    Current + past employees, dedupe by id, cap at 30 (current first).
+    Both passes use region filter. Results are merged and deduped, cap at 50.
     """
+    # --- 3a: Seniority search (current + past) ---
     try:
-        current = await gg.search_executives_current(linkedin_company_id)
-        past = await gg.search_executives_past(linkedin_company_id)
-        logger.info("Step 3: Using Ghost Genius for executive search")
+        current = await gg.search_executives_current(linkedin_company_id, locations=region_id)
+        past = await gg.search_executives_past(linkedin_company_id, locations=region_id)
+        logger.info("Step 3a: Using Ghost Genius for seniority search")
     except Exception as e:
-        logger.warning(f"Step 3: Ghost Genius failed ({e}), falling back to Evaboot")
-        current, past = await evaboot.search_executives(linkedin_company_id, company_name)
-        logger.info("Step 3: Using Evaboot fallback for executive search")
+        logger.warning(f"Step 3a: Ghost Genius failed ({e}), falling back to Evaboot")
+        current, past = await evaboot.search_executives(
+            linkedin_company_id, company_name, region_id, region_name,
+        )
+        logger.info("Step 3a: Using Evaboot fallback for seniority search")
 
-    # Deduplicate by LinkedIn ID
+    # --- 3b: Keyword search (current only) ---
+    # GG `keywords` param is a free-text search field; use space-separated terms
+    keywords_str = " ".join(TITLE_SEARCH_KEYWORDS)
+    keyword_results: list[dict] = []
+    try:
+        keyword_results = await gg.search_executives_by_keywords(
+            linkedin_company_id, keywords=keywords_str, locations=region_id,
+        )
+        logger.info(f"Step 3b: Ghost Genius keyword search found {len(keyword_results)} profiles")
+    except Exception as e:
+        logger.warning(f"Step 3b: Ghost Genius keywords failed ({e}), falling back to Evaboot")
+        keyword_results = await evaboot.search_executives_by_keywords(
+            linkedin_company_id, company_name, TITLE_SEARCH_KEYWORDS, region_id, region_name,
+        )
+        logger.info(f"Step 3b: Evaboot keyword search found {len(keyword_results)} profiles")
+
+    # --- Merge and deduplicate ---
     seen_ids: set[str] = set()
     deduped: list[dict] = []
 
+    # Current seniority results first
     for exec_data in current:
         eid = exec_data.get("id", "")
         if eid and eid not in seen_ids:
@@ -140,6 +167,15 @@ async def _step3_search_executives(
             exec_data["is_current_employee"] = True
             deduped.append(exec_data)
 
+    # Keyword results (current employees, may overlap with seniority)
+    for exec_data in keyword_results:
+        eid = exec_data.get("id", "")
+        if eid and eid not in seen_ids:
+            seen_ids.add(eid)
+            exec_data["is_current_employee"] = True
+            deduped.append(exec_data)
+
+    # Past seniority results last
     for exec_data in past:
         eid = exec_data.get("id", "")
         if eid and eid not in seen_ids:
@@ -154,7 +190,10 @@ async def _step3_search_executives(
     for exec_data in deduped:
         exec_data["_db_id"] = db.insert_audit_executive(audit_id, deal_id, domain, exec_data)
 
-    logger.info(f"Step 3: Found {len(deduped)} executives ({len(current)} current, {len(past)} past)")
+    logger.info(
+        f"Step 3: Found {len(deduped)} executives "
+        f"({len(current)} seniority current, {len(keyword_results)} keyword, {len(past)} past)"
+    )
     return deduped
 
 
@@ -289,6 +328,13 @@ async def ghost_genius_node(state: AuditState) -> dict:
     company_name = state["company_name"]
     audit_id = state["audit_report_id"]
     deal_id = state["deal_id"]
+    country = state.get("country") or "France"
+
+    # Resolve country → LinkedIn region ID
+    region_id = LINKEDIN_REGION_IDS.get(country, "")
+    region_name = country if region_id else ""
+    if not region_id:
+        logger.warning(f"No LinkedIn region ID for country '{country}', searches will not filter by region")
 
     # Reset account rotation for this run
     gg.reset_rotation()
@@ -329,9 +375,10 @@ async def ghost_genius_node(state: AuditState) -> dict:
                 logger.warning(f"Step 2 failed: {e}")
                 growth = {}
 
-        # Step 3: Search C-levels
+        # Step 3: Search executives (seniority + keyword, with region filter)
         executives = await _step3_search_executives(
-            linkedin_company_id, company_name, audit_id, deal_id, domain
+            linkedin_company_id, company_name, audit_id, deal_id, domain,
+            region_id=region_id, region_name=region_name,
         )
 
         # Step 4: Enrich profiles

@@ -55,4 +55,27 @@ def load_settings() -> Settings:
     )
 
 
+# LinkedIn region IDs for Sales Navigator location filter
+LINKEDIN_REGION_IDS: dict[str, str] = {
+    "France": "105015875",
+    "United Kingdom": "101165590",
+    "Germany": "101282230",
+    "Spain": "105646813",
+    "Italy": "103350119",
+    "Belgium": "100565514",
+    "Netherlands": "102890719",
+    "Switzerland": "106693272",
+    "USA": "103644278",
+    "Canada": "101174742",
+    "Australia": "101452733",
+    "India": "102713980",
+    "Brazil": "106057199",
+    "Sweden": "105117694",
+    "Denmark": "104514075",
+    "Norway": "103819153",
+}
+
+# Title keywords for supplementary executive search (signal-relevant roles)
+TITLE_SEARCH_KEYWORDS = ["PMO", "project management office", "CIO office", "manager IT", "chief of staff"]
+
 settings = load_settings()

@@ -21,6 +21,7 @@ class AuditState(TypedDict):
     stage_id: str
     company_name: str
     domain: str
+    country: str  # default "France", used for Sales Navigator region filter
 
     # -- Optional sales team for connexions matching --
     sales_team: Optional[list[dict]]

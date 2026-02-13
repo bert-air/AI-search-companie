@@ -19,6 +19,7 @@ async def main():
         "stage_id": f"e2e_stage_{run_id}",
         "company_name": "Systra",
         "domain": "systra.com",
+        "country": "France",
         "sales_team": [
             {"name": "Bertran Ruiz", "linkedin_slug": "bertran_ruiz", "role": "AE"},
             {"name": "Thomas Poitau", "linkedin_slug": "thomas_poitau", "role": "AE"},
