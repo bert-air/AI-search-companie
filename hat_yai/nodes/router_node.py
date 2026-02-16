@@ -64,6 +64,14 @@ def _get_full_profiles(
     return full_profiles
 
 
+def _filter_posts_by_authors(consolidated: dict, author_names: set[str]) -> list[dict]:
+    """Filter posts to only those authored by specific people."""
+    return [
+        p for p in (consolidated.get("posts_pertinents") or [])
+        if p.get("auteur") in author_names
+    ]
+
+
 def _filter_pre_signals(consolidated: dict, signal_ids: set[str]) -> list[dict]:
     """Filter pre-detected signals to only those relevant to the agent."""
     return [
@@ -105,6 +113,10 @@ def route_to_agents(consolidated: dict) -> dict[str, dict]:
         "comex_profils": {
             "c_levels_details": _get_full_profiles(consolidated),
             "organigramme_probable": consolidated.get("organigramme_probable") or [],
+            "posts_c_levels": _filter_posts_by_authors(
+                consolidated,
+                {p["name"] for p in _get_full_profiles(consolidated)},
+            ),
         },
 
         "connexions": {

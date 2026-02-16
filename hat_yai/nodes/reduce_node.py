@@ -92,6 +92,26 @@ async def reduce_node(state: AuditState) -> dict:
 
     consolidated = result.model_dump()
 
+    # --- Post-LLM: merge posts in pure Python (LLM output budget too small) ---
+    # Posts don't need LLM consolidation, just merging and deduplication
+    all_posts = []
+    seen_posts: set[str] = set()
+    for lot in lot_results:
+        for post in lot.get("posts_pertinents") or []:
+            # Dedupe by (auteur, date, first 100 chars of text)
+            key = (
+                post.get("auteur", ""),
+                post.get("date", ""),
+                (post.get("texte_integral") or "")[:100],
+            )
+            key_str = str(key)
+            if key_str not in seen_posts:
+                seen_posts.add(key_str)
+                all_posts.append(post)
+
+    # Replace LLM's (likely truncated) posts with the complete merged set
+    consolidated["posts_pertinents"] = all_posts
+
     # Ensure growth data is included even if LLM missed it
     if growth and not consolidated.get("croissance_effectifs"):
         consolidated["croissance_effectifs"] = growth
@@ -103,6 +123,7 @@ async def reduce_node(state: AuditState) -> dict:
     logger.info(
         f"REDUCE: Consolidated {consolidated.get('profils_total', 0)} profiles, "
         f"{consolidated.get('profils_c_level', 0)} C-levels, "
+        f"{len(all_posts)} posts, "
         f"{len(consolidated.get('signaux_pre_detectes', []))} pre-signals"
     )
 
