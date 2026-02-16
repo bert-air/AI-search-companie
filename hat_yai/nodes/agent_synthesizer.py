@@ -94,22 +94,22 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
     report_updates["input_dynamique"] = {
         "company_name": company_name,
         "domain": state["domain"],
-        "ghost_genius_available": state.get("ghost_genius_available"),
+        "linkedin_available": state.get("linkedin_available"),
     }
     report_updates["input_comex_organisation"] = {
         "company_name": company_name,
         "domain": state["domain"],
-        "ghost_genius_available": state.get("ghost_genius_available"),
+        "linkedin_available": state.get("linkedin_available"),
     }
     report_updates["input_comex_profils"] = {
         "company_name": company_name,
         "domain": state["domain"],
-        "ghost_genius_available": state.get("ghost_genius_available"),
+        "linkedin_available": state.get("linkedin_available"),
     }
     report_updates["input_connexions"] = {
         "company_name": company_name,
         "domain": state["domain"],
-        "ghost_genius_available": state.get("ghost_genius_available"),
+        "linkedin_available": state.get("linkedin_available"),
     }
 
     # --- Output 1: Supabase ---

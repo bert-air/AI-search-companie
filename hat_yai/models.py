@@ -32,7 +32,7 @@ class Signal(BaseModel):
 
 class DataQuality(BaseModel):
     sources_count: int = 0
-    ghost_genius_available: bool = False
+    linkedin_available: bool = False
     confidence_overall: Literal["high", "medium", "low"] = "medium"
 
 

@@ -141,7 +141,7 @@ def _build_context(state: AuditState, agent_name: str, extra_context: Optional[d
         f"# Entreprise à analyser",
         f"- Nom : {state['company_name']}",
         f"- Domaine : {state['domain']}",
-        f"- Données LinkedIn disponibles : {state.get('ghost_genius_available', False)}",
+        f"- Données LinkedIn disponibles : {state.get('linkedin_available', False)}",
     ]
 
     # NEW: Use pre-processed context slice from router if available
@@ -156,15 +156,15 @@ def _build_context(state: AuditState, agent_name: str, extra_context: Optional[d
     else:
         # LEGACY FALLBACK: raw GG data (when MAP/REDUCE pipeline is bypassed)
         gg_agents = {"comex_organisation", "comex_profils", "connexions", "dynamique"}
-        if agent_name in gg_agents and state.get("ghost_genius_available"):
-            if state.get("ghost_genius_executives"):
-                execs = [_slim_executive(e, agent_name) for e in state["ghost_genius_executives"][:_MAX_EXECS]]
+        if agent_name in gg_agents and state.get("linkedin_available"):
+            if state.get("linkedin_executives"):
+                execs = [_slim_executive(e, agent_name) for e in state["linkedin_executives"][:_MAX_EXECS]]
                 parts.append(f"\n## Dirigeants LinkedIn\n```json\n{json.dumps(execs, ensure_ascii=False, indent=2)}\n```")
-            if agent_name != "connexions" and state.get("ghost_genius_posts"):
-                posts = _slim_posts(state["ghost_genius_posts"])
+            if agent_name != "connexions" and state.get("linkedin_posts"):
+                posts = _slim_posts(state["linkedin_posts"])
                 parts.append(f"\n## Posts LinkedIn récents\n```json\n{json.dumps(posts, ensure_ascii=False, indent=2)}\n```")
-            if state.get("ghost_genius_employees_growth"):
-                parts.append(f"\n## Croissance effectifs\n```json\n{json.dumps(state['ghost_genius_employees_growth'], ensure_ascii=False, indent=2)}\n```")
+            if state.get("linkedin_employees_growth"):
+                parts.append(f"\n## Croissance effectifs\n```json\n{json.dumps(state['linkedin_employees_growth'], ensure_ascii=False, indent=2)}\n```")
 
     # Include sales team for connexions and comex_profils agents
     if agent_name in ("connexions", "comex_profils") and state.get("sales_team"):
@@ -187,7 +187,7 @@ def _build_pass2_context(
         "# Entreprise à analyser",
         f"- Nom : {state['company_name']}",
         f"- Domaine : {state['domain']}",
-        f"- Données LinkedIn disponibles : {state.get('ghost_genius_available', False)}",
+        f"- Données LinkedIn disponibles : {state.get('linkedin_available', False)}",
         f"\n## Analyse des données internes (Pass 1)\n{pass1_summary}",
     ]
 
@@ -456,7 +456,7 @@ async def run_agent(
         logger.error(f"Agent {agent_name} failed: {e}", exc_info=True)
         fallback = AgentReport(
             agent_name=agent_name,
-            data_quality={"sources_count": 0, "ghost_genius_available": False, "confidence_overall": "low"},
+            data_quality={"sources_count": 0, "linkedin_available": False, "confidence_overall": "low"},
         )
         return {
             "agent_reports": [fallback.model_dump()],

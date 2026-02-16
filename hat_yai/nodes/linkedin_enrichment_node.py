@@ -1,7 +1,7 @@
-"""Ghost Genius — Technical node (no LLM).
+"""LinkedIn Enrichment — Technical node (no LLM).
 
 5 sequential sub-steps of HTTP API calls with Supabase read/write.
-On failure: sets ghost_genius_available=False so downstream agents operate in degraded mode.
+On failure: sets linkedin_available=False so downstream agents operate in degraded mode.
 
 Spec reference: Section 5.
 """
@@ -331,10 +331,10 @@ async def _step5_linkedin_posts(
 
 # --- Main node function ---
 
-async def ghost_genius_node(state: AuditState) -> dict:
-    """Ghost Genius technical node — 5 sequential sub-steps.
+async def linkedin_enrichment_node(state: AuditState) -> dict:
+    """LinkedIn enrichment node — 5 sequential sub-steps.
 
-    On any critical failure: returns ghost_genius_available=False.
+    On any critical failure: returns linkedin_available=False.
     """
     domain = state["domain"]
     company_name = state["company_name"]
@@ -358,16 +358,16 @@ async def ghost_genius_node(state: AuditState) -> dict:
         )
 
         if not linkedin_company_id:
-            logger.warning("Ghost Genius: Could not resolve company, entering degraded mode")
-            db.update_audit_report(audit_id, {"ghost_genius_available": False})
+            logger.warning("LinkedIn enrichment: Could not resolve company, entering degraded mode")
+            db.update_audit_report(audit_id, {"linkedin_available": False})
             return {
                 "linkedin_company_id": None,
                 "linkedin_company_url": None,
-                "ghost_genius_available": False,
-                "ghost_genius_employees_growth": None,
-                "ghost_genius_executives": None,
-                "ghost_genius_posts": None,
-                "node_errors": {"ghost_genius": "Could not resolve LinkedIn company ID"},
+                "linkedin_available": False,
+                "linkedin_employees_growth": None,
+                "linkedin_executives": None,
+                "linkedin_posts": None,
+                "node_errors": {"linkedin_enrichment": "Could not resolve LinkedIn company ID"},
             }
 
         # Store LinkedIn info in audit report
@@ -399,39 +399,39 @@ async def ghost_genius_node(state: AuditState) -> dict:
         # Step 5: LinkedIn posts
         posts = await _step5_linkedin_posts(executives, audit_id)
 
-        db.update_audit_report(audit_id, {"ghost_genius_available": True})
+        db.update_audit_report(audit_id, {"linkedin_available": True})
 
         return {
             "linkedin_company_id": linkedin_company_id,
             "linkedin_company_url": linkedin_company_url,
-            "ghost_genius_available": True,
-            "ghost_genius_employees_growth": growth,
-            "ghost_genius_executives": executives,
-            "ghost_genius_posts": posts,
+            "linkedin_available": True,
+            "linkedin_employees_growth": growth,
+            "linkedin_executives": executives,
+            "linkedin_posts": posts,
         }
 
     except RuntimeError as e:
         # All accounts rate-limited
-        logger.error(f"Ghost Genius node failed: {e}")
-        db.update_audit_report(audit_id, {"ghost_genius_available": False})
+        logger.error(f"LinkedIn enrichment node failed: {e}")
+        db.update_audit_report(audit_id, {"linkedin_available": False})
         return {
             "linkedin_company_id": None,
             "linkedin_company_url": None,
-            "ghost_genius_available": False,
-            "ghost_genius_employees_growth": None,
-            "ghost_genius_executives": None,
-            "ghost_genius_posts": None,
-            "node_errors": {"ghost_genius": str(e)},
+            "linkedin_available": False,
+            "linkedin_employees_growth": None,
+            "linkedin_executives": None,
+            "linkedin_posts": None,
+            "node_errors": {"linkedin_enrichment": str(e)},
         }
     except Exception as e:
-        logger.error(f"Ghost Genius node unexpected error: {e}")
-        db.update_audit_report(audit_id, {"ghost_genius_available": False})
+        logger.error(f"LinkedIn enrichment node unexpected error: {e}")
+        db.update_audit_report(audit_id, {"linkedin_available": False})
         return {
             "linkedin_company_id": None,
             "linkedin_company_url": None,
-            "ghost_genius_available": False,
-            "ghost_genius_employees_growth": None,
-            "ghost_genius_executives": None,
-            "ghost_genius_posts": None,
-            "node_errors": {"ghost_genius": str(e)},
+            "linkedin_available": False,
+            "linkedin_employees_growth": None,
+            "linkedin_executives": None,
+            "linkedin_posts": None,
+            "node_errors": {"linkedin_enrichment": str(e)},
         }

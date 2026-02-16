@@ -113,12 +113,12 @@ async def _process_batch(
 
 async def map_node(state: AuditState) -> dict:
     """MAP: batch profiles and extract structured data in parallel."""
-    if not state.get("ghost_genius_available"):
+    if not state.get("linkedin_available"):
         logger.info("MAP: LinkedIn data not available, skipping")
         return {"map_lot_results": []}
 
-    executives = state.get("ghost_genius_executives") or []
-    posts = state.get("ghost_genius_posts") or []
+    executives = state.get("linkedin_executives") or []
+    posts = state.get("linkedin_posts") or []
 
     if not executives:
         logger.info("MAP: No executives found, skipping")

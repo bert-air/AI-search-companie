@@ -58,7 +58,7 @@ async def reduce_node(state: AuditState) -> dict:
         context_parts.append(f"```json\n{json.dumps(lot, ensure_ascii=False, indent=2)}\n```\n")
 
     # Inject employee growth data (not part of MAP, comes from GG directly)
-    growth = state.get("ghost_genius_employees_growth")
+    growth = state.get("linkedin_employees_growth")
     if growth:
         context_parts.append("## Données de croissance effectifs (source LinkedIn)")
         context_parts.append(f"```json\n{json.dumps(growth, ensure_ascii=False, indent=2)}\n```\n")

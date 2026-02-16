@@ -1,6 +1,6 @@
 """Evaboot API — fallback for Sales Navigator executive search.
 
-Used when Ghost Genius /private/sales-navigator returns 403.
+Primary Sales Navigator search provider. Ghost Genius used as fallback.
 Async: POST extraction → poll until EXECUTED → return prospects.
 """
 

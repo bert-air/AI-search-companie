@@ -35,7 +35,7 @@ async def main():
     print(f"AUDIT COMPLETE — Status: {result.get('final_status', 'UNKNOWN')}")
     print(f"{'='*60}")
     print(f"\nAudit Report ID: {result.get('audit_report_id')}")
-    print(f"Ghost Genius available: {result.get('ghost_genius_available')}")
+    print(f"LinkedIn available: {result.get('linkedin_available')}")
     print(f"LinkedIn Company ID: {result.get('linkedin_company_id')}")
     print(f"Number of agent reports: {len(result.get('agent_reports', []))}")
     print(f"Node errors: {json.dumps(result.get('node_errors', {}), indent=2)}")

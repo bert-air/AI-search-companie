@@ -41,7 +41,7 @@ async def orchestrator_node(state: AuditState) -> dict:
     return {
         "audit_report_id": report_id,
         "country": country,
-        "ghost_genius_available": False,
+        "linkedin_available": False,
         "agent_reports": [],
         "node_errors": {},
     }

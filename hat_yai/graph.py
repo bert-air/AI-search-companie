@@ -7,8 +7,8 @@ Spec reference: Section 2 (architecture v2).
 
 Execution flow:
   START → orchestrator
-  orchestrator → [agent_finance, agent_entreprise, ghost_genius]     (parallel)
-  ghost_genius → map_linkedin → reduce_linkedin → router_linkedin    (sequential)
+  orchestrator → [agent_finance, agent_entreprise, linkedin_enrichment]  (parallel)
+  linkedin_enrichment → map_linkedin → reduce_linkedin → router_linkedin (sequential)
   router_linkedin → [agent_comex_organisation, agent_dynamique]      (parallel)
   agent_comex_organisation → [agent_comex_profils, agent_connexions]  (parallel)
   [all 5 leaf agents] → agent_scoring                                 (fan-in)
@@ -20,7 +20,7 @@ from langgraph.graph import StateGraph, START, END
 
 from hat_yai.state import AuditState
 from hat_yai.nodes.orchestrator import orchestrator_node
-from hat_yai.nodes.ghost_genius_node import ghost_genius_node
+from hat_yai.nodes.linkedin_enrichment_node import linkedin_enrichment_node
 from hat_yai.nodes.map_node import map_node
 from hat_yai.nodes.reduce_node import reduce_node
 from hat_yai.nodes.router_node import router_node
@@ -39,7 +39,7 @@ builder = StateGraph(AuditState)
 
 # Register all nodes
 builder.add_node("orchestrator", orchestrator_node)
-builder.add_node("ghost_genius", ghost_genius_node)
+builder.add_node("linkedin_enrichment", linkedin_enrichment_node)
 builder.add_node("map_linkedin", map_node)
 builder.add_node("reduce_linkedin", reduce_node)
 builder.add_node("router_linkedin", router_node)
@@ -58,10 +58,10 @@ builder.add_edge(START, "orchestrator")
 # --- Parallel fan-out from orchestrator ---
 builder.add_edge("orchestrator", "agent_finance")
 builder.add_edge("orchestrator", "agent_entreprise")
-builder.add_edge("orchestrator", "ghost_genius")
+builder.add_edge("orchestrator", "linkedin_enrichment")
 
-# --- Ghost Genius → MAP → REDUCE → Router (sequential) ---
-builder.add_edge("ghost_genius", "map_linkedin")
+# --- LinkedIn Enrichment → MAP → REDUCE → Router (sequential) ---
+builder.add_edge("linkedin_enrichment", "map_linkedin")
 builder.add_edge("map_linkedin", "reduce_linkedin")
 builder.add_edge("reduce_linkedin", "router_linkedin")
 

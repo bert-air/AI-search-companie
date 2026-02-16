@@ -1,6 +1,6 @@
 """Agent Dynamique — movements, changes, transformation signals.
 
-Depends on Ghost Genius data. Spec reference: Section 7.3.
+Depends on LinkedIn enrichment data. Spec reference: Section 7.3.
 """
 
 from hat_yai.state import AuditState

@@ -1,6 +1,6 @@
 """Agent COMEX Organisation — IT org structure, CIO, DSI, PMO.
 
-Depends on Ghost Genius data. Spec reference: Section 7.4.
+Depends on LinkedIn enrichment data. Spec reference: Section 7.4.
 """
 
 from hat_yai.config import LINKEDIN_REGION_IDS

@@ -1,6 +1,6 @@
 """Ghost Genius API functions.
 
-Plain async functions (NOT LangChain @tool). Called directly by ghost_genius_node.
+Plain async functions (NOT LangChain @tool). Called directly by linkedin_enrichment_node.
 Handles account_id rotation with round-robin and rate-limit tracking.
 
 Spec reference: Section 5 + Section 9.

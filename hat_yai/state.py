@@ -29,13 +29,13 @@ class AuditState(TypedDict):
     # -- Audit report row ID (set once by orchestrator) --
     audit_report_id: str
 
-    # -- Ghost Genius data (set by ghost_genius_node, single writer) --
+    # -- LinkedIn enrichment data (set by linkedin_enrichment_node, single writer) --
     linkedin_company_id: Optional[str]
     linkedin_company_url: Optional[str]
-    ghost_genius_available: bool
-    ghost_genius_employees_growth: Optional[dict]
-    ghost_genius_executives: Optional[list]
-    ghost_genius_posts: Optional[list]
+    linkedin_available: bool
+    linkedin_employees_growth: Optional[dict]
+    linkedin_executives: Optional[list]
+    linkedin_posts: Optional[list]
 
     # -- MAP/REDUCE outputs (sequential, single writer each) --
     map_lot_results: Optional[list[dict]]       # Written by map_node
