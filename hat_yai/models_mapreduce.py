@@ -27,6 +27,7 @@ class MapDirigeant(BaseModel):
     poste_debut: Optional[str] = None  # "YYYY-MM"
     anciennete_mois: Optional[int] = None
     is_c_level: bool = False
+    is_current_employee: bool = True
     entreprises_precedentes: list[EntreprisePrecedente] = Field(default_factory=list)
     headline_keywords: list[str] = Field(default_factory=list)
     rattachement_mentionne: Optional[str] = None
