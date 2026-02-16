@@ -14,6 +14,7 @@ Produire un rapport structuré sur les mouvements récents et la dynamique de l'
 - **Acquisitions, fusions, cessions**
 - **Restructuration, réorganisation, plan stratégique**
 - Projets IT majeurs (cloud, ERP, refonte SI)
+- **Recrutements clés** : offres ou posts LinkedIn recrutant un PMO, directeur de programme, chef de projet transfo, directeur transformation — signal fort qu'une structuration est en cours
 - Signaux dans les **posts LinkedIn** des dirigeants (fournis dans le contexte)
 - **Croissance/décroissance effectifs** (données Ghost Genius fournies)
 

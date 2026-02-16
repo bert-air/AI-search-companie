@@ -54,6 +54,7 @@ _SIGNAL_KEYWORDS = [
     "erp", "sap", "salesforce", "cloud", "aws", "azure", "gcp",
     "migration", "cybersécurité", "cyber", "infra", "infrastructure",
     "servicenow", "jira", "monday", "planview", "ms project",
+    "asana", "sciforma", "triskell",
     "devops", "saas", "data", "ia ", "intelligence artificielle",
     # PMO / Gestion de projets
     "pmo", "bureau de projets", "project management", "program manager",
@@ -257,7 +258,9 @@ async def run_agent(
                 "internes (Pass 1)' dans le contexte). Concentre-toi UNIQUEMENT sur :\n"
                 "1. Combler les lacunes identifiées dans l'analyse Pass 1\n"
                 "2. Vérifier/confirmer les conclusions clés avec des sources web\n"
-                "3. Trouver des informations que les données internes ne contenaient pas\n\n"
+                "3. Trouver des informations que les données internes ne contenaient pas\n"
+                "4. Exécuter les RECHERCHES OBLIGATOIRES définies dans ton prompt "
+                "(ex: Sales Navigator pour les profils mid-management comme PMO, IT Manager)\n\n"
                 "Ne répète PAS ce qui est déjà dans l'analyse Pass 1. "
                 "Ajoute UNIQUEMENT de nouvelles informations.\n"
             )
