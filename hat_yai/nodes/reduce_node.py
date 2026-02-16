@@ -92,13 +92,37 @@ async def reduce_node(state: AuditState) -> dict:
 
     consolidated = result.model_dump()
 
-    # --- Post-LLM: merge posts in pure Python (LLM output budget too small) ---
-    # Posts don't need LLM consolidation, just merging and deduplication
-    all_posts = []
+    # --- Post-LLM: merge large lists in pure Python ---
+    # The LLM's max_tokens budget (8192) is too small to output 50+ profiles,
+    # 100+ posts, etc. We merge these from MAP lot results directly and let
+    # the LLM focus on the "intelligence" outputs (c_levels, organigramme,
+    # themes, signaux) which are small enough to fit.
+
+    # 1. Dirigeants: merge + deduplicate by name
+    all_dirigeants: list[dict] = []
+    seen_names: set[str] = set()
+    for lot in lot_results:
+        for d in lot.get("dirigeants") or []:
+            name = d.get("name", "")
+            if name and name not in seen_names:
+                seen_names.add(name)
+                all_dirigeants.append(d)
+            elif name in seen_names:
+                # Keep the more complete version (more non-null fields)
+                for i, existing in enumerate(all_dirigeants):
+                    if existing.get("name") == name:
+                        existing_fields = sum(1 for v in existing.values() if v)
+                        new_fields = sum(1 for v in d.values() if v)
+                        if new_fields > existing_fields:
+                            all_dirigeants[i] = d
+                        break
+    consolidated["dirigeants"] = all_dirigeants
+
+    # 2. Posts: merge + deduplicate
+    all_posts: list[dict] = []
     seen_posts: set[str] = set()
     for lot in lot_results:
         for post in lot.get("posts_pertinents") or []:
-            # Dedupe by (auteur, date, first 100 chars of text)
             key = (
                 post.get("auteur", ""),
                 post.get("date", ""),
@@ -108,9 +132,41 @@ async def reduce_node(state: AuditState) -> dict:
             if key_str not in seen_posts:
                 seen_posts.add(key_str)
                 all_posts.append(post)
-
-    # Replace LLM's (likely truncated) posts with the complete merged set
     consolidated["posts_pertinents"] = all_posts
+
+    # 3. Mouvements: merge from mouvements_lot + deduplicate
+    all_mouvements: list[dict] = []
+    seen_mouvements: set[str] = set()
+    for lot in lot_results:
+        for m in lot.get("mouvements_lot") or []:
+            key = (m.get("qui", ""), m.get("type", ""), m.get("date_approx", ""))
+            key_str = str(key)
+            if key_str not in seen_mouvements:
+                seen_mouvements.add(key_str)
+                all_mouvements.append(m)
+    # Sort by date desc
+    all_mouvements.sort(key=lambda m: m.get("date_approx", ""), reverse=True)
+    consolidated["mouvements_consolides"] = all_mouvements
+
+    # 4. Stack: merge from stack_detectee_lot + deduplicate
+    all_stack: list[dict] = []
+    seen_tools: set[str] = set()
+    for lot in lot_results:
+        for tool_name in lot.get("stack_detectee_lot") or []:
+            if isinstance(tool_name, str) and tool_name not in seen_tools:
+                seen_tools.add(tool_name)
+                all_stack.append({"outil": tool_name, "source": "lot", "mentionne_par": ""})
+    # Merge with any LLM-produced stack entries (which may have richer source info)
+    for entry in consolidated.get("stack_consolidee") or []:
+        tool = entry.get("outil", "")
+        if tool and tool not in seen_tools:
+            seen_tools.add(tool)
+            all_stack.append(entry)
+    consolidated["stack_consolidee"] = all_stack
+
+    # Update metadata counts from actual merged data
+    consolidated["profils_total"] = len(all_dirigeants)
+    consolidated["profils_c_level"] = len(consolidated.get("c_levels") or [])
 
     # Ensure growth data is included even if LLM missed it
     if growth and not consolidated.get("croissance_effectifs"):
@@ -121,9 +177,10 @@ async def reduce_node(state: AuditState) -> dict:
     consolidated["lots_fusionnes"] = total_lots
 
     logger.info(
-        f"REDUCE: Consolidated {consolidated.get('profils_total', 0)} profiles, "
-        f"{consolidated.get('profils_c_level', 0)} C-levels, "
-        f"{len(all_posts)} posts, "
+        f"REDUCE: Consolidated {len(all_dirigeants)} profiles (Python-merged), "
+        f"{consolidated.get('profils_c_level', 0)} C-levels (LLM), "
+        f"{len(all_posts)} posts, {len(all_mouvements)} mouvements, "
+        f"{len(all_stack)} stack entries, "
         f"{len(consolidated.get('signaux_pre_detectes', []))} pre-signals"
     )
 
