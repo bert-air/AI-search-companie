@@ -47,7 +47,7 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
 
     # --- Determine final status ---
     has_errors = bool(state.get("node_errors"))
-    final_status = "completed" if not has_errors else "completed"
+    final_status = "completed" if not has_errors else "completed_with_errors"
 
     # --- Build per-agent report fields for Supabase ---
     report_updates: dict = {
