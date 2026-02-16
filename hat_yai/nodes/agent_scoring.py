@@ -1,10 +1,11 @@
 """Agent Scoring — deterministic scoring from all agent signals.
 
-Reads signals from all agent_reports, applies the 20-signal grille,
-computes score_total and data_quality_score.
+Reads signals from all agent_reports, applies the 27-signal grille,
+computes score_total with confidence weighting, data_quality_score,
+and verdict (GO/EXPLORE/PASS).
 Signal validators can override LLM status based on parsed value fields.
 
-Spec reference: Section 7.7.
+Spec reference: Annexe I.
 """
 
 from __future__ import annotations
@@ -22,21 +23,29 @@ from hat_yai.utils.llm import get_llm, load_prompt
 
 logger = logging.getLogger(__name__)
 
-# Scoring grille — signal_id → points (spec Section 7.7)
+# Scoring grille — signal_id → points_bruts (27 signals)
 SCORING_GRILLE: dict[str, int] = {
+    # Positive signals
     "nouveau_dsi_dir_transfo": 30,
     "programme_transfo_annonce": 30,
     "nouveau_pdg_dg": 30,
+    "verbatim_douleur_detecte": 25,
     "croissance_ca_forte": 20,
     "acquisition_recente": 20,
     "plan_strategique_annonce": 20,
     "direction_transfo_existe": 20,
+    "cible_prioritaire_identifiee": 15,
     "croissance_effectifs_forte": 15,
     "dsi_plus_40": 15,
     "pmo_identifie": 15,
-    "sales_connecte_top_management": 15,
+    "connexion_c_level": 15,
     "posts_linkedin_transfo": 15,
+    "dirigeant_actif_linkedin": 10,
+    "connexion_management": 10,
     "entreprise_plus_1000": 10,
+    "reseau_alumni_commun": 10,
+    "vecteur_indirect_identifie": 5,
+    # Negative signals
     "entreprise_en_difficulte": -30,
     "licenciements_pse": -20,
     "entreprise_moins_500": -20,
@@ -52,16 +61,22 @@ SIGNAL_SOURCES: dict[str, str] = {
     "nouveau_dsi_dir_transfo": "comex_organisation",
     "programme_transfo_annonce": "dynamique",
     "nouveau_pdg_dg": "comex_organisation",
+    "verbatim_douleur_detecte": "dynamique",
     "croissance_ca_forte": "finance",
     "acquisition_recente": "dynamique",
     "plan_strategique_annonce": "dynamique",
     "direction_transfo_existe": "comex_organisation",
+    "cible_prioritaire_identifiee": "comex_profils",
     "croissance_effectifs_forte": "dynamique",
     "dsi_plus_40": "comex_organisation",
     "pmo_identifie": "comex_organisation",
-    "sales_connecte_top_management": "connexions",
+    "connexion_c_level": "connexions",
     "posts_linkedin_transfo": "dynamique",
+    "dirigeant_actif_linkedin": "comex_profils",
+    "connexion_management": "connexions",
     "entreprise_plus_1000": "finance",
+    "reseau_alumni_commun": "comex_profils",
+    "vecteur_indirect_identifie": "connexions",
     "entreprise_en_difficulte": "finance",
     "licenciements_pse": "dynamique",
     "entreprise_moins_500": "finance",
@@ -71,6 +86,21 @@ SIGNAL_SOURCES: dict[str, str] = {
     "dsi_en_poste_plus_5_ans": "comex_organisation",
     "secteur_en_declin": "entreprise",
 }
+
+# Backward compatibility: old signal name → new signal name
+_SIGNAL_ALIASES: dict[str, str] = {
+    "sales_connecte_top_management": "connexion_c_level",
+}
+
+# Confidence multipliers for weighted scoring
+CONFIDENCE_MULTIPLIERS: dict[str, float] = {
+    "high": 1.0,
+    "medium": 0.75,
+    "low": 0.5,
+}
+
+# score_max = sum of all positive signals at full confidence
+SCORE_MAX = sum(v for v in SCORING_GRILLE.values() if v > 0)  # 365
 
 
 def _parse_months(text: str) -> Optional[float]:
@@ -148,13 +178,15 @@ SIGNAL_VALIDATORS = {
 
 
 def _compute_scoring(agent_reports: list[dict]) -> dict:
-    """Deterministic scoring from agent signals."""
-    # Collect all signals from all agents
+    """Deterministic scoring from agent signals with confidence weighting."""
+    # Collect all signals from all agents, applying aliases
     all_signals: dict[str, dict] = {}
     for report in agent_reports:
         for signal in report.get("signals", []):
             sid = signal.get("signal_id")
             if sid:
+                # Apply backward compatibility aliases
+                sid = _SIGNAL_ALIASES.get(sid, sid)
                 all_signals[sid] = signal
 
     scoring_signals = []
@@ -163,15 +195,17 @@ def _compute_scoring(agent_reports: list[dict]) -> dict:
     total_signals = len(SCORING_GRILLE)
     data_missing = []
 
-    for signal_id, points in SCORING_GRILLE.items():
+    for signal_id, points_bruts in SCORING_GRILLE.items():
         signal = all_signals.get(signal_id)
 
         if signal:
             status = signal.get("status", "UNKNOWN")
+            confidence = signal.get("confidence", "medium")
             value = signal.get("value", "")
             evidence = signal.get("evidence", "")
         else:
             status = "UNKNOWN"
+            confidence = "medium"
             value = ""
             evidence = ""
 
@@ -185,24 +219,43 @@ def _compute_scoring(agent_reports: list[dict]) -> dict:
                 )
                 status = "NOT_DETECTED"
 
+        # Compute weighted points
         if status == "DETECTED":
-            score_total += points
+            multiplier = CONFIDENCE_MULTIPLIERS.get(confidence, 0.75)
+            points_ponderes = round(points_bruts * multiplier)
+            score_total += points_ponderes
             detected_or_not += 1
         elif status == "NOT_DETECTED":
+            points_ponderes = 0
             detected_or_not += 1
         else:  # UNKNOWN
+            points_ponderes = 0
             data_missing.append(signal_id)
 
         scoring_signals.append({
             "signal_id": signal_id,
             "status": status,
-            "points": points if status == "DETECTED" else 0,
+            "confidence": confidence,
+            "points_bruts": points_bruts if status == "DETECTED" else 0,
+            "points_ponderes": points_ponderes,
             "agent_source": SIGNAL_SOURCES.get(signal_id, ""),
             "value": value,
             "evidence": evidence,
         })
 
     data_quality_score = (detected_or_not / total_signals * 100) if total_signals > 0 else 0
+
+    # Verdict
+    if score_total >= 150:
+        verdict = "GO"
+        verdict_emoji = "🟢"
+    elif score_total >= 80:
+        verdict = "EXPLORE"
+        verdict_emoji = "🟡"
+    else:
+        verdict = "PASS"
+        verdict_emoji = "🔴"
+
     warning = None
     if data_quality_score < 50:
         warning = "Score peu fiable — données insuffisantes"
@@ -210,8 +263,11 @@ def _compute_scoring(agent_reports: list[dict]) -> dict:
     return {
         "scoring_signals": scoring_signals,
         "score_total": score_total,
+        "score_max": SCORE_MAX,
         "data_quality_score": round(data_quality_score, 1),
         "data_missing_signals": data_missing,
+        "verdict": verdict,
+        "verdict_emoji": verdict_emoji,
         "warning": warning,
     }
 
@@ -221,7 +277,8 @@ async def agent_scoring_node(state: AuditState) -> dict:
     scoring = _compute_scoring(state.get("agent_reports", []))
 
     logger.info(
-        f"Scoring: total={scoring['score_total']}, "
+        f"Scoring: total={scoring['score_total']}/{scoring['score_max']}, "
+        f"verdict={scoring['verdict']} {scoring['verdict_emoji']}, "
         f"quality={scoring['data_quality_score']}%, "
         f"missing={len(scoring['data_missing_signals'])} signals"
     )

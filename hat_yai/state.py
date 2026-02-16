@@ -37,6 +37,11 @@ class AuditState(TypedDict):
     ghost_genius_executives: Optional[list]
     ghost_genius_posts: Optional[list]
 
+    # -- MAP/REDUCE outputs (sequential, single writer each) --
+    map_lot_results: Optional[list[dict]]       # Written by map_node
+    consolidated_linkedin: Optional[dict]       # Written by reduce_node
+    agent_context_slices: Optional[dict]        # Written by router_node
+
     # -- Agent reports (PARALLEL — operator.add reducer) --
     agent_reports: Annotated[list[dict], operator.add]
 

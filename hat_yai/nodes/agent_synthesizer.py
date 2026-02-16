@@ -54,10 +54,17 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
         "final_report": final_report,
         "scoring_signals": scoring.get("scoring_signals"),
         "score_total": scoring.get("score_total"),
+        "score_max": scoring.get("score_max", 330),
         "data_quality_score": scoring.get("data_quality_score"),
+        "verdict": scoring.get("verdict"),
         "status": final_status,
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Store MAP/REDUCE consolidated output for debug/replay
+    consolidated = state.get("consolidated_linkedin")
+    if consolidated:
+        report_updates["consolidated_linkedin"] = consolidated
 
     # Store individual agent reports
     for report in agent_reports:
@@ -72,6 +79,13 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
             report_updates[f"prompt_{agent_name}"] = load_prompt(agent_name)
         except Exception:
             logger.warning(f"Could not load prompt for {agent_name}")
+
+    # Store MAP/REDUCE prompts for reproducibility
+    for prompt_name in ("map", "reduce"):
+        try:
+            report_updates[f"prompt_{prompt_name}"] = load_prompt(prompt_name)
+        except Exception:
+            pass
     report_updates["prompt_synthesizer"] = system_prompt
 
     # Also store agent inputs for debug/replay

@@ -132,29 +132,43 @@ def _slim_posts(posts: list[dict]) -> list[dict]:
 
 
 def _build_context(state: AuditState, agent_name: str, extra_context: Optional[dict] = None) -> str:
-    """Build the human message content with company info and relevant GG data."""
+    """Build the human message content with company info and relevant data.
+
+    Prioritizes pre-processed router slices (from MAP/REDUCE pipeline).
+    Falls back to raw GG data if router slices are not available.
+    """
     parts = [
         f"# Entreprise à analyser",
         f"- Nom : {state['company_name']}",
         f"- Domaine : {state['domain']}",
-        f"- Ghost Genius disponible : {state.get('ghost_genius_available', False)}",
+        f"- Données LinkedIn disponibles : {state.get('ghost_genius_available', False)}",
     ]
 
-    # Include GG data for agents that need it
-    gg_agents = {"comex_organisation", "comex_profils", "connexions", "dynamique"}
-    if agent_name in gg_agents and state.get("ghost_genius_available"):
-        if state.get("ghost_genius_executives"):
-            execs = [_slim_executive(e, agent_name) for e in state["ghost_genius_executives"][:_MAX_EXECS]]
-            parts.append(f"\n## Dirigeants (Ghost Genius)\n```json\n{json.dumps(execs, ensure_ascii=False, indent=2)}\n```")
-        if agent_name != "connexions" and state.get("ghost_genius_posts"):
-            posts = _slim_posts(state["ghost_genius_posts"])
-            parts.append(f"\n## Posts LinkedIn récents\n```json\n{json.dumps(posts, ensure_ascii=False, indent=2)}\n```")
-        if state.get("ghost_genius_employees_growth"):
-            parts.append(f"\n## Croissance effectifs\n```json\n{json.dumps(state['ghost_genius_employees_growth'], ensure_ascii=False, indent=2)}\n```")
+    # NEW: Use pre-processed context slice from router if available
+    slices = state.get("agent_context_slices")
+    if slices and agent_name in slices:
+        slice_data = slices[agent_name]
+        if slice_data:
+            parts.append(
+                f"\n## Contexte LinkedIn pré-traité\n```json\n"
+                f"{json.dumps(slice_data, ensure_ascii=False, indent=2)}\n```"
+            )
+    else:
+        # LEGACY FALLBACK: raw GG data (when MAP/REDUCE pipeline is bypassed)
+        gg_agents = {"comex_organisation", "comex_profils", "connexions", "dynamique"}
+        if agent_name in gg_agents and state.get("ghost_genius_available"):
+            if state.get("ghost_genius_executives"):
+                execs = [_slim_executive(e, agent_name) for e in state["ghost_genius_executives"][:_MAX_EXECS]]
+                parts.append(f"\n## Dirigeants LinkedIn\n```json\n{json.dumps(execs, ensure_ascii=False, indent=2)}\n```")
+            if agent_name != "connexions" and state.get("ghost_genius_posts"):
+                posts = _slim_posts(state["ghost_genius_posts"])
+                parts.append(f"\n## Posts LinkedIn récents\n```json\n{json.dumps(posts, ensure_ascii=False, indent=2)}\n```")
+            if state.get("ghost_genius_employees_growth"):
+                parts.append(f"\n## Croissance effectifs\n```json\n{json.dumps(state['ghost_genius_employees_growth'], ensure_ascii=False, indent=2)}\n```")
 
-    # Include sales team for connexions agent
-    if agent_name == "connexions" and state.get("sales_team"):
-        parts.append(f"\n## Équipe commerciale AirSaas\n```json\n{json.dumps(state['sales_team'], ensure_ascii=False, indent=2)}\n```")
+    # Include sales team for connexions and comex_profils agents
+    if agent_name in ("connexions", "comex_profils") and state.get("sales_team"):
+        parts.append(f"\n## Équipe commerciale\n```json\n{json.dumps(state['sales_team'], ensure_ascii=False, indent=2)}\n```")
 
     if extra_context:
         parts.append(f"\n## Contexte additionnel\n```json\n{json.dumps(extra_context, ensure_ascii=False, indent=2)}\n```")
@@ -173,7 +187,7 @@ def _build_pass2_context(
         "# Entreprise à analyser",
         f"- Nom : {state['company_name']}",
         f"- Domaine : {state['domain']}",
-        f"- Ghost Genius disponible : {state.get('ghost_genius_available', False)}",
+        f"- Données LinkedIn disponibles : {state.get('ghost_genius_available', False)}",
         f"\n## Analyse des données internes (Pass 1)\n{pass1_summary}",
     ]
 
@@ -197,7 +211,7 @@ async def _run_pass1(
     pass1_instruction = (
         "\n\n---\n\n"
         "PASS 1 — ANALYSE DES DONNÉES STRUCTURÉES\n\n"
-        "Tu as accès à toutes les données Ghost Genius (dirigeants, posts LinkedIn, "
+        "Tu as accès à toutes les données LinkedIn enrichies (dirigeants, posts LinkedIn, "
         "croissance effectifs). Analyse-les en profondeur.\n\n"
         "Produis un résumé structuré couvrant :\n"
         "1. Tes conclusions principales pour chaque catégorie de ton mandat\n"
@@ -452,7 +466,8 @@ async def run_agent(
 
 def _extract_signals_section(prompt: str) -> str:
     """Extract the signals table section from an agent's system prompt."""
-    match = re.search(r"(## Signaux à émettre.*?)(?=\n## |\Z)", prompt, re.DOTALL)
+    # Try both "Signaux à émettre" (old) and "Signaux" (new spec)
+    match = re.search(r"(## Signaux(?:\s+à émettre)?.*?)(?=\n## |\Z)", prompt, re.DOTALL)
     return match.group(1).strip() if match else ""
 
 
@@ -461,8 +476,12 @@ def _extract_signal_ids(prompt: str) -> list[str]:
     signals_section = _extract_signals_section(prompt)
     if not signals_section:
         return []
-    # Match backtick-wrapped signal_ids in markdown table rows (preceded by |)
-    return re.findall(r"\|\s*`(\w+)`", signals_section)
+    # Match signal_ids: backtick-wrapped `signal_id` or plain signal_id in table rows
+    backtick = re.findall(r"\|\s*`(\w+)`", signals_section)
+    if backtick:
+        return backtick
+    # Fallback: match plain signal_id patterns in table rows (word_word format)
+    return re.findall(r"\|\s*(\w+(?:_\w+)+)\s*\|", signals_section)
 
 
 def _estimate_context_chars(messages: list) -> int:

@@ -49,7 +49,9 @@ class AgentReport(BaseModel):
 class ScoringSignal(BaseModel):
     signal_id: str
     status: Literal["DETECTED", "NOT_DETECTED", "UNKNOWN"]
-    points: int
+    confidence: Literal["high", "medium", "low"] = "medium"
+    points_bruts: int = 0
+    points_ponderes: int = 0  # After confidence multiplier
     agent_source: str
     value: str = ""
     evidence: str = ""
@@ -58,6 +60,9 @@ class ScoringSignal(BaseModel):
 class ScoringResult(BaseModel):
     scoring_signals: list[ScoringSignal] = Field(default_factory=list)
     score_total: int = 0
+    score_max: int = 330
     data_quality_score: float = 0.0
     data_missing_signals: list[str] = Field(default_factory=list)
+    verdict: Literal["GO", "EXPLORE", "PASS"] = "PASS"
+    verdict_emoji: str = ""
     warning: Optional[str] = None

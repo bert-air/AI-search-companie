@@ -35,3 +35,11 @@ def load_prompt(agent_name: str) -> str:
     """Load a system prompt from prompts/{agent_name}.md"""
     path = PROMPTS_DIR / f"{agent_name}.md"
     return path.read_text(encoding="utf-8")
+
+
+def load_prompt_template(agent_name: str, **kwargs: str) -> str:
+    """Load a prompt and replace {{variable}} placeholders with provided values."""
+    raw = load_prompt(agent_name)
+    for key, value in kwargs.items():
+        raw = raw.replace("{{" + key + "}}", str(value))
+    return raw

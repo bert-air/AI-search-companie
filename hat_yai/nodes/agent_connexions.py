@@ -1,7 +1,7 @@
-"""Agent Connexions — check if AirSaas sales are connected to executives.
+"""Agent Connexions — LinkedIn connection analysis and indirect vectors.
 
-Simple agent: reads connected_with from state, no Firecrawl needed.
-Spec reference: Section 7.6.
+Reads pre-processed connexion data from router slice + sales team.
+No web tools needed. Spec reference: Section 6.3 (Connexions).
 """
 
 from hat_yai.state import AuditState
