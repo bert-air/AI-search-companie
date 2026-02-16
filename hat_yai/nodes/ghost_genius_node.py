@@ -164,7 +164,8 @@ async def _step3_search_executives(
 
     # --- Merge and deduplicate ---
     seen_ids: set[str] = set()
-    deduped: list[dict] = []
+    current_deduped: list[dict] = []
+    past_deduped: list[dict] = []
 
     # Current seniority results first
     for exec_data in current:
@@ -172,7 +173,7 @@ async def _step3_search_executives(
         if eid and eid not in seen_ids:
             seen_ids.add(eid)
             exec_data["is_current_employee"] = True
-            deduped.append(exec_data)
+            current_deduped.append(exec_data)
 
     # Keyword results (current employees, may overlap with seniority)
     for exec_data in keyword_results:
@@ -180,18 +181,22 @@ async def _step3_search_executives(
         if eid and eid not in seen_ids:
             seen_ids.add(eid)
             exec_data["is_current_employee"] = True
-            deduped.append(exec_data)
+            current_deduped.append(exec_data)
 
-    # Past seniority results last
+    # Past seniority results (former C-levels — important for departure signals)
     for exec_data in past:
         eid = exec_data.get("id", "")
         if eid and eid not in seen_ids:
             seen_ids.add(eid)
             exec_data["is_current_employee"] = False
-            deduped.append(exec_data)
+            past_deduped.append(exec_data)
 
-    # Cap at 50 (current employees prioritized since they're added first)
-    deduped = deduped[:50]
+    # Cap at 50: reserve up to 10 slots for former C-levels (departure signals),
+    # fill remaining slots with current employees
+    _MAX_PAST = 10
+    past_kept = past_deduped[:_MAX_PAST]
+    current_slots = 50 - len(past_kept)
+    deduped = current_deduped[:current_slots] + past_kept
 
     # Insert into Supabase
     for exec_data in deduped:
@@ -199,7 +204,7 @@ async def _step3_search_executives(
 
     logger.info(
         f"Step 3: Found {len(deduped)} executives "
-        f"({len(current)} seniority current, {len(keyword_results)} keyword, {len(past)} past)"
+        f"({len(current_deduped)} current, {len(past_kept)} past kept / {len(past_deduped)} past total)"
     )
     return deduped
 
