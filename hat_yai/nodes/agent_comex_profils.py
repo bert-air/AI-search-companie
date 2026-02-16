@@ -23,4 +23,5 @@ async def agent_comex_profils_node(state: AuditState) -> dict:
         agent_name="comex_profils",
         tools=[search_web, scrape_page],
         extra_context={"comex_organisation_report": comex_orga} if comex_orga else None,
+        two_pass=True,
     )

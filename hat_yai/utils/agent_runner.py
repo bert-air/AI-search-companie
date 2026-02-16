@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_ITERATIONS = 10
 _MAX_TOOL_RESULT_CHARS = 20_000
 _MAX_CONTEXT_CHARS = 150_000
+_TWO_PASS_SUMMARY_MAX_TOKENS = 4096
+_EXTRA_CONTEXT_PASS2_LIMIT = 10_000
 
 # Fields to keep per agent when slimming executive data
 _EXEC_BASE_FIELDS = {"full_name", "headline", "current_job_title", "is_current_employee", "url"}
@@ -159,11 +161,75 @@ def _build_context(state: AuditState, agent_name: str, extra_context: Optional[d
     return "\n".join(parts)
 
 
+def _build_pass2_context(
+    state: AuditState,
+    agent_name: str,
+    pass1_summary: str,
+    extra_context: Optional[dict] = None,
+) -> str:
+    """Build slim context for Pass 2: company identity + Pass 1 summary only."""
+    parts = [
+        "# Entreprise à analyser",
+        f"- Nom : {state['company_name']}",
+        f"- Domaine : {state['domain']}",
+        f"- Ghost Genius disponible : {state.get('ghost_genius_available', False)}",
+        f"\n## Analyse des données internes (Pass 1)\n{pass1_summary}",
+    ]
+
+    if extra_context:
+        ctx_str = json.dumps(extra_context, ensure_ascii=False, indent=2)
+        if len(ctx_str) > _EXTRA_CONTEXT_PASS2_LIMIT:
+            ctx_str = ctx_str[:_EXTRA_CONTEXT_PASS2_LIMIT] + "\n[… tronqué]"
+        parts.append(f"\n## Contexte additionnel\n```json\n{ctx_str}\n```")
+
+    return "\n".join(parts)
+
+
+async def _run_pass1(
+    system_prompt: str,
+    context: str,
+    agent_name: str,
+) -> str:
+    """Pass 1: analyse data-only (no tools). Returns a structured summary."""
+    llm = get_llm(max_tokens=_TWO_PASS_SUMMARY_MAX_TOKENS)
+
+    pass1_instruction = (
+        "\n\n---\n\n"
+        "PASS 1 — ANALYSE DES DONNÉES STRUCTURÉES\n\n"
+        "Tu as accès à toutes les données Ghost Genius (dirigeants, posts LinkedIn, "
+        "croissance effectifs). Analyse-les en profondeur.\n\n"
+        "Produis un résumé structuré couvrant :\n"
+        "1. Tes conclusions principales pour chaque catégorie de ton mandat\n"
+        "2. Les signaux que tu peux déjà émettre avec certitude\n"
+        "3. Les LACUNES SPÉCIFIQUES : ce que tu n'as PAS trouvé dans les données "
+        "et que tu auras besoin de chercher sur le web\n\n"
+        "Format : texte structuré en sections, max 3000 mots.\n"
+        "Sois exhaustif sur les noms, dates, rôles exacts que tu trouves dans les données.\n"
+        "Sois spécifique sur les lacunes (ex: 'budget IT non mentionné', "
+        "'stack technique inconnue', 'pas d'info PMO').\n"
+    )
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=context + pass1_instruction),
+    ]
+
+    response = await llm.ainvoke(messages)
+    summary = response.content if isinstance(response.content, str) else str(response.content)
+
+    logger.info(
+        f"Agent {agent_name}: Pass 1 complete, summary={len(summary)} chars "
+        f"(input context was {len(context)} chars)"
+    )
+    return summary
+
+
 async def run_agent(
     state: AuditState,
     agent_name: str,
     tools: Optional[list] = None,
     extra_context: Optional[dict] = None,
+    two_pass: bool = False,
 ) -> dict:
     """Run an LLM agent with optional tool-calling loop.
 
@@ -175,51 +241,115 @@ async def run_agent(
         context = _build_context(state, agent_name, extra_context)
 
         llm = get_llm(max_tokens=8192)
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=context),
-        ]
 
-        # Tool-calling loop
-        for iteration in range(MAX_TOOL_ITERATIONS):
-            # Context size guard — stop if accumulated context is too large
-            ctx_size = _estimate_context_chars(messages)
-            if ctx_size > _MAX_CONTEXT_CHARS:
-                logger.warning(f"Agent {agent_name}: context size {ctx_size} exceeds limit, stopping tool loop")
+        if two_pass and tools:
+            # --- TWO-PASS MODE ---
+            # Pass 1: full GG data, no tools → structured summary
+            pass1_summary = await _run_pass1(system_prompt, context, agent_name)
+
+            # Pass 2: slim context + summary, WITH tools → web research
+            pass2_context = _build_pass2_context(state, agent_name, pass1_summary, extra_context)
+
+            pass2_system = system_prompt + (
+                "\n\n---\n"
+                "MODE PASS 2 — RECHERCHE WEB COMPLÉMENTAIRE\n\n"
+                "Tu as déjà analysé toutes les données internes (voir 'Analyse des données "
+                "internes (Pass 1)' dans le contexte). Concentre-toi UNIQUEMENT sur :\n"
+                "1. Combler les lacunes identifiées dans l'analyse Pass 1\n"
+                "2. Vérifier/confirmer les conclusions clés avec des sources web\n"
+                "3. Trouver des informations que les données internes ne contenaient pas\n\n"
+                "Ne répète PAS ce qui est déjà dans l'analyse Pass 1. "
+                "Ajoute UNIQUEMENT de nouvelles informations.\n"
+            )
+
+            messages = [
+                SystemMessage(content=pass2_system),
+                HumanMessage(content=pass2_context),
+            ]
+
+            # Standard tool loop on slim context
+            for iteration in range(MAX_TOOL_ITERATIONS):
+                ctx_size = _estimate_context_chars(messages)
+                if ctx_size > _MAX_CONTEXT_CHARS:
+                    logger.warning(f"Agent {agent_name}: Pass 2 context {ctx_size} exceeds limit, stopping")
+                    break
+
+                response = await llm.bind_tools(tools).ainvoke(messages)
+                messages.append(response)
+
+                if hasattr(response, "tool_calls") and response.tool_calls:
+                    for tc in response.tool_calls:
+                        tool_fn = _find_tool(tc["name"], tools or [])
+                        if tool_fn:
+                            try:
+                                result = tool_fn.invoke(tc["args"])
+                            except Exception as e:
+                                result = f"Error: {e}"
+                        else:
+                            result = f"Error: unknown tool {tc['name']}"
+
+                        result_str = str(result)
+                        if len(result_str) > _MAX_TOOL_RESULT_CHARS:
+                            result_str = result_str[:_MAX_TOOL_RESULT_CHARS] + "\n\n[… résultat tronqué]"
+
+                        messages.append(ToolMessage(
+                            content=result_str,
+                            tool_call_id=tc["id"],
+                        ))
+                    continue
+
                 break
 
-            if tools:
-                response = await llm.bind_tools(tools).ainvoke(messages)
-            else:
-                response = await llm.ainvoke(messages)
+            # Inject Pass 1 summary into message history for extraction
+            messages.append(HumanMessage(content=(
+                "## Rappel — Analyse des données internes (Pass 1)\n\n"
+                f"{pass1_summary}\n\n"
+                "Combine les données internes (Pass 1) et tes recherches web (Pass 2) "
+                "pour ton analyse finale."
+            )))
 
-            messages.append(response)
+        else:
+            # --- STANDARD SINGLE-PASS MODE ---
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=context),
+            ]
 
-            # If the LLM made tool calls, execute them and loop
-            if hasattr(response, "tool_calls") and response.tool_calls:
-                for tc in response.tool_calls:
-                    tool_fn = _find_tool(tc["name"], tools or [])
-                    if tool_fn:
-                        try:
-                            result = tool_fn.invoke(tc["args"])
-                        except Exception as e:
-                            result = f"Error: {e}"
-                    else:
-                        result = f"Error: unknown tool {tc['name']}"
+            for iteration in range(MAX_TOOL_ITERATIONS):
+                ctx_size = _estimate_context_chars(messages)
+                if ctx_size > _MAX_CONTEXT_CHARS:
+                    logger.warning(f"Agent {agent_name}: context size {ctx_size} exceeds limit, stopping tool loop")
+                    break
 
-                    # Truncate oversized tool results
-                    result_str = str(result)
-                    if len(result_str) > _MAX_TOOL_RESULT_CHARS:
-                        result_str = result_str[:_MAX_TOOL_RESULT_CHARS] + "\n\n[… résultat tronqué]"
+                if tools:
+                    response = await llm.bind_tools(tools).ainvoke(messages)
+                else:
+                    response = await llm.ainvoke(messages)
 
-                    messages.append(ToolMessage(
-                        content=result_str,
-                        tool_call_id=tc["id"],
-                    ))
-                continue
+                messages.append(response)
 
-            # No tool calls — agent is done
-            break
+                if hasattr(response, "tool_calls") and response.tool_calls:
+                    for tc in response.tool_calls:
+                        tool_fn = _find_tool(tc["name"], tools or [])
+                        if tool_fn:
+                            try:
+                                result = tool_fn.invoke(tc["args"])
+                            except Exception as e:
+                                result = f"Error: {e}"
+                        else:
+                            result = f"Error: unknown tool {tc['name']}"
+
+                        result_str = str(result)
+                        if len(result_str) > _MAX_TOOL_RESULT_CHARS:
+                            result_str = result_str[:_MAX_TOOL_RESULT_CHARS] + "\n\n[… résultat tronqué]"
+
+                        messages.append(ToolMessage(
+                            content=result_str,
+                            tool_call_id=tc["id"],
+                        ))
+                    continue
+
+                break
 
         # Two-step extraction with automatic retry
         signals_section = _extract_signals_section(system_prompt)

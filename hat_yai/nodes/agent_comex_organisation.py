@@ -13,4 +13,5 @@ async def agent_comex_organisation_node(state: AuditState) -> dict:
         state=state,
         agent_name="comex_organisation",
         tools=[search_web, scrape_page],
+        two_pass=True,
     )
