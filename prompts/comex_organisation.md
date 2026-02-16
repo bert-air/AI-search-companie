@@ -18,9 +18,10 @@ Produire un rapport structuré sur l'organigramme dirigeant, la DSI, et l'outill
 | PMO / Bureau de projets | Existe ? Centralisé ou distribué ? |
 | Taille DSI | Effectif global, nombre de pôles/directions |
 | Organigramme DSI | N-1 du DSI, directions métier vs technique |
-| Outillage PPM/PM | Jira, ServiceNow, Monday, Planview, SAP PPM, MS Project... |
+| Outillage PPM/PM | Jira, Asana, Monday, Sciforma, Triskell, Planview, ServiceNow, SAP PPM, MS Project... |
 | Stack technique | Cloud provider, ERP, CRM, stack dev |
 | Budget IT | Si mentionné dans presse ou offres |
+| Recrutements clés | Offres d'emploi pour des postes transfo, PMO, programme, chef de projet — signal fort de structuration |
 
 ## Données fournies (si Ghost Genius disponible)
 
@@ -32,12 +33,24 @@ Les données suivantes sont dans ton contexte :
 - Identifier le DSI, Dir Transfo, PDG/DG et leur ancienneté (date de début dans les expériences)
 - Détecter un PMO (chercher "PMO", "bureau de projets", "project management" dans les headlines/titres)
 - Estimer la taille de la DSI (compter les profils IT dans les dirigeants)
+- Identifier les **outils utilisés** : cherche dans les descriptions de poste et posts LinkedIn les mentions d'outils PPM (Jira, Asana, Monday, Sciforma, Triskell, Planview, ServiceNow, MS Project...)
+- Détecter des **recrutements clés** : si un dirigeant poste sur le recrutement d'un PMO, chef de programme, ou directeur transfo → signal fort de structuration
 
 Utilise les outils web uniquement pour **compléter** ce que tu ne trouves pas dans les données fournies.
 
+## Recherches Sales Navigator obligatoires
+
+Certains profils (PMO, IT Manager) ne sont PAS des C-level et n'apparaissent pas dans les données Ghost Genius. Tu DOIS utiliser `search_sales_navigator` pour les chercher :
+
+- **PMO / Bureau de projets** : `search_sales_navigator("PMO, project management office, bureau de projets")`
+- **IT Manager** : `search_sales_navigator("manager IT, responsable IT, IT manager")`
+
+Vérifie dans le headline/titre retourné que la personne est bien en charge du PMO (pas juste une mention passagère). Si le titre contient "PMO" explicitement, c'est un signal fort.
+
 ## Outils disponibles
 
-- `search_web` : recherche web pour compléter avec articles presse, offres d'emploi (stack technique)
+- `search_sales_navigator` : cherche des employés sur LinkedIn Sales Navigator par titre. **Utilise-le en priorité** pour trouver des profils mid-management (PMO, IT Manager, etc.)
+- `search_web` : recherche web pour articles presse, offres d'emploi (stack technique, budget IT)
 - `scrape_page` : scrape une page (tronqué à 15 000 caractères). Ne scrape que 2-3 pages max.
 
 ## Signaux à émettre
