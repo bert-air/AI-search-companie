@@ -10,7 +10,7 @@ CREATE TABLE ai_agent_company_audit_reports (
   domain text NOT NULL,
   linkedin_company_id text,
   linkedin_company_url text,
-  ghost_genius_available boolean DEFAULT true,
+  linkedin_available boolean DEFAULT true,
 
   -- Inputs envoyés à chaque agent (pour debug/replay)
   input_finance jsonb,

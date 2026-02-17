@@ -367,7 +367,7 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
 
         if not linkedin_company_id:
             logger.warning("LinkedIn enrichment: Could not resolve company, entering degraded mode")
-            db.update_audit_report(audit_id, {"ghost_genius_available": False})
+            db.update_audit_report(audit_id, {"linkedin_available": False})
             return {
                 "linkedin_company_id": None,
                 "linkedin_company_url": None,
@@ -407,7 +407,7 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
         # Step 5: LinkedIn posts
         posts = await _step5_linkedin_posts(executives, audit_id)
 
-        db.update_audit_report(audit_id, {"ghost_genius_available": True})
+        db.update_audit_report(audit_id, {"linkedin_available": True})
 
         return {
             "linkedin_company_id": linkedin_company_id,
@@ -421,7 +421,7 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
     except RuntimeError as e:
         # All accounts rate-limited
         logger.error(f"LinkedIn enrichment node failed: {e}")
-        db.update_audit_report(audit_id, {"ghost_genius_available": False})
+        db.update_audit_report(audit_id, {"linkedin_available": False})
         return {
             "linkedin_company_id": None,
             "linkedin_company_url": None,
@@ -433,7 +433,7 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
         }
     except Exception as e:
         logger.error(f"LinkedIn enrichment node unexpected error: {e}")
-        db.update_audit_report(audit_id, {"ghost_genius_available": False})
+        db.update_audit_report(audit_id, {"linkedin_available": False})
         return {
             "linkedin_company_id": None,
             "linkedin_company_url": None,
