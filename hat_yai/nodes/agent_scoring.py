@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import date, datetime
 from typing import Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -102,6 +103,23 @@ CONFIDENCE_MULTIPLIERS: dict[str, float] = {
 # score_max = sum of all positive signals at full confidence
 SCORE_MAX = sum(v for v in SCORING_GRILLE.values() if v > 0)  # 365
 
+# Intent vs Profile signal classification
+INTENT_SIGNALS = {
+    "nouveau_dsi_dir_transfo", "programme_transfo_annonce", "nouveau_pdg_dg",
+    "verbatim_douleur_detecte", "acquisition_recente", "plan_strategique_annonce",
+    "posts_linkedin_transfo", "dirigeant_actif_linkedin", "licenciements_pse",
+    "croissance_effectifs_forte", "decroissance_effectifs",
+}
+
+# Signals exempt from temporal decay (structural/permanent)
+_NO_DECAY_SIGNALS = {
+    "entreprise_plus_1000", "entreprise_moins_500", "dsi_plus_40", "dsi_moins_10",
+    "secteur_en_declin", "entreprise_en_difficulte", "dsi_en_poste_plus_5_ans",
+    "direction_transfo_existe", "pmo_identifie", "connexion_c_level",
+    "connexion_management", "vecteur_indirect_identifie", "reseau_alumni_commun",
+    "cible_prioritaire_identifiee", "dirigeant_actif_linkedin",
+}
+
 
 def _parse_months(text: str) -> Optional[float]:
     """Best-effort: extract a duration in months from value/evidence text."""
@@ -155,6 +173,33 @@ def _validate_max_employees(signal: dict, threshold: int) -> Optional[bool]:
         if n is not None:
             return n < threshold
     return None
+
+
+def _extract_event_date(text: str) -> Optional[date]:
+    """Extract a date from signal evidence/value for temporal decay."""
+    for pattern, fmt in [
+        (r"(\d{4}-\d{2}-\d{2})", "%Y-%m-%d"),
+        (r"(\d{4}-\d{2})", "%Y-%m"),
+        (r"\b(20\d{2})\b", "%Y"),
+    ]:
+        m = re.search(pattern, text)
+        if m:
+            try:
+                return datetime.strptime(m.group(1), fmt).date()
+            except ValueError:
+                continue
+    return None
+
+
+def _decay_factor(signal: dict) -> float:
+    """Events >18 months old lose 50% points."""
+    for field in ("value", "evidence"):
+        d = _extract_event_date(signal.get(field, ""))
+        if d:
+            months_ago = (date.today() - d).days / 30
+            if months_ago > 18:
+                return 0.5
+    return 1.0
 
 
 def _validate_min_months(signal: dict, min_months: float) -> Optional[bool]:
@@ -219,10 +264,13 @@ def _compute_scoring(agent_reports: list[dict]) -> dict:
                 )
                 status = "NOT_DETECTED"
 
-        # Compute weighted points
+        # Compute weighted points (with temporal decay for event-based signals)
         if status == "DETECTED":
             multiplier = CONFIDENCE_MULTIPLIERS.get(confidence, 0.75)
-            points_ponderes = round(points_bruts * multiplier)
+            decay = 1.0
+            if signal and signal_id not in _NO_DECAY_SIGNALS:
+                decay = _decay_factor(signal)
+            points_ponderes = round(points_bruts * multiplier * decay)
             score_total += points_ponderes
             detected_or_not += 1
         elif status == "NOT_DETECTED":
@@ -260,10 +308,22 @@ def _compute_scoring(agent_reports: list[dict]) -> dict:
     if data_quality_score < 50:
         warning = "Score peu fiable — données insuffisantes"
 
+    # Sub-scores: profile (structural) vs intent (timing/buying signals)
+    score_intent = sum(
+        s["points_ponderes"] for s in scoring_signals
+        if s["signal_id"] in INTENT_SIGNALS
+    )
+    score_profil = sum(
+        s["points_ponderes"] for s in scoring_signals
+        if s["signal_id"] not in INTENT_SIGNALS
+    )
+
     return {
         "scoring_signals": scoring_signals,
         "score_total": score_total,
         "score_max": SCORE_MAX,
+        "score_profil": score_profil,
+        "score_intent": score_intent,
         "data_quality_score": round(data_quality_score, 1),
         "data_missing_signals": data_missing,
         "verdict": verdict,
@@ -279,6 +339,7 @@ async def agent_scoring_node(state: AuditState) -> dict:
     logger.info(
         f"Scoring: total={scoring['score_total']}/{scoring['score_max']}, "
         f"verdict={scoring['verdict']} {scoring['verdict_emoji']}, "
+        f"profil={scoring['score_profil']}pts intent={scoring['score_intent']}pts, "
         f"quality={scoring['data_quality_score']}%, "
         f"missing={len(scoring['data_missing_signals'])} signals"
     )

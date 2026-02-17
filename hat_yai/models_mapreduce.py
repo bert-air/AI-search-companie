@@ -34,6 +34,8 @@ class MapDirigeant(BaseModel):
     personnes_mentionnees: list[str] = Field(default_factory=list)
     skills_cles: list[str] = Field(default_factory=list)
     connected_with: Optional[list[str]] = None
+    about: Optional[str] = None  # LinkedIn "About" section (when available)
+    company_name: Optional[str] = None  # Current employer (for filtering)
 
 
 class MapPost(BaseModel):

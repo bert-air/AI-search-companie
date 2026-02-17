@@ -274,11 +274,15 @@ def _copy_contact_fields(exec_data: dict, contact: dict) -> None:
     exec_data["educations"] = contact.get("educations")
     exec_data["skills"] = contact.get("linkedin_skills")
     exec_data["connected_with"] = contact.get("connected_with")
+    # LinkedIn "About" section — populated when enriched_contacts has linkedin_summary
+    about = contact.get("linkedin_summary") or contact.get("about")
+    if about:
+        exec_data["linkedin_about"] = about
 
 
 def _contact_to_exec_updates(contact: dict) -> dict:
     """Build update dict for ai_agent_company_audit_executives from enriched_contacts."""
-    return {
+    updates = {
         "full_name": contact.get("full_name"),
         "headline": contact.get("linkedin_headline"),
         "current_job_title": contact.get("linkedin_job_title"),
@@ -288,6 +292,10 @@ def _contact_to_exec_updates(contact: dict) -> dict:
         "skills": contact.get("linkedin_skills"),
         "connected_with": contact.get("connected_with"),
     }
+    about = contact.get("linkedin_summary") or contact.get("about")
+    if about:
+        updates["linkedin_about"] = about
+    return updates
 
 
 async def _step5_linkedin_posts(

@@ -47,6 +47,10 @@ Pour chacun des C-levels fournis, produis UNE fiche structurée :
 | dirigeant_actif_linkedin | La cible prioritaire identifiée poste ≥2 fois par mois (estimé depuis les données). Si pas de cible prioritaire, évaluer le dirigeant C-level le plus pertinent. |
 | reseau_alumni_commun | Un C-level a travaillé dans une entreprise où un sales de l'équipe a aussi travaillé OU étudié dans la même école. Équipe commerciale : {{sales_list}}. |
 
+## Règle sources
+
+Chaque fait DOIT avoir au moins une source. Pour les données issues du LinkedIn fourni : `url: ""`, `publisher: "LinkedIn"`, `snippet: "verbatim ou donnée"`. Pour les données web : URL vérifiable obligatoire. INTERDIT : confidence "high" ou "medium" sans source identifiable. Ne jamais inventer de noms de sources ("Document interne" = INTERDIT).
+
 ## Format de sortie
 
 AgentReport JSON avec :
