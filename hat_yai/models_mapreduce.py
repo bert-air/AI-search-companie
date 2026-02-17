@@ -9,7 +9,7 @@ These models are used with `with_structured_output()` for validated LLM output.
 from __future__ import annotations
 
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- MAP models (per-lot extraction) ---
@@ -53,6 +53,28 @@ class MapMouvement(BaseModel):
     type: Literal["arrivee", "depart", "promotion", "changement_poste"]
     date_approx: str = ""  # "YYYY-MM"
     contexte: str = ""  # max 15 words
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def normalize_type(cls, v: str) -> str:
+        """Normalize LLM output: strip accents and common variants."""
+        import unicodedata
+        if not isinstance(v, str):
+            return v
+        # Remove accents (départ → depart, arrivée → arrivee)
+        nfkd = unicodedata.normalize("NFKD", v.strip().lower())
+        cleaned = "".join(c for c in nfkd if not unicodedata.combining(c))
+        # Map common LLM variants
+        mapping = {
+            "depart": "depart",
+            "départ": "depart",
+            "arrivee": "arrivee",
+            "arrivée": "arrivee",
+            "changement_poste": "changement_poste",
+            "changement de poste": "changement_poste",
+            "changement poste": "changement_poste",
+        }
+        return mapping.get(cleaned, cleaned)
 
 
 class MapLotResult(BaseModel):
