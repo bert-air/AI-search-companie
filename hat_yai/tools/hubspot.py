@@ -34,7 +34,6 @@ async def create_deal_note(deal_id: str, note_body: str) -> bool:
             json={
                 "properties": {
                     "hs_note_body": note_body,
-                    "hs_timestamp": None,  # auto-set by HubSpot
                 }
             },
         )
