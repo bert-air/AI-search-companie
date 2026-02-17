@@ -21,6 +21,31 @@ logger = logging.getLogger(__name__)
 
 _LOTS_THRESHOLD_FOR_OPUS = 4  # Use Opus if > this many lots
 
+# Title keywords → role mapping for C-level fallback
+_ROLE_KEYWORDS = [
+    ("ceo", "CEO"), ("chief executive", "CEO"), ("directeur général", "CEO"),
+    ("pdg", "CEO"), ("président", "CEO"),
+    ("cfo", "CFO"), ("chief financial", "CFO"), ("directeur financier", "CFO"),
+    ("cio", "CIO"), ("chief information", "CIO"), ("dsi", "CIO"),
+    ("cto", "CTO"), ("chief technical", "CTO"), ("chief technology", "CTO"),
+    ("cdo", "CDO"), ("chief digital", "CDO"), ("chief data", "CDO"),
+    ("coo", "COO"), ("chief operating", "COO"),
+    ("cmo", "CMO"), ("chief marketing", "CMO"),
+    ("chro", "CHRO"), ("chief human", "CHRO"), ("drh", "CHRO"),
+    ("vp it", "VP_IT"), ("vp digital", "VP_Digital"), ("vp sales", "VP_Sales"),
+    ("vp transformation", "VP_Transfo"), ("vp operations", "VP_Operations"),
+    ("svp", "VP_Operations"), ("senior vice president", "VP_Operations"),
+]
+
+
+def _infer_role(title: str) -> str:
+    """Infer C-level role from job title. Best-effort, used as fallback."""
+    title_lower = title.lower()
+    for keyword, role in _ROLE_KEYWORDS:
+        if keyword in title_lower:
+            return role
+    return "Autre"
+
 
 def _empty_consolidated(company_name: str) -> dict:
     """Return a minimal consolidated result for degraded mode."""
@@ -164,6 +189,26 @@ async def reduce_node(state: AuditState) -> dict:
             all_stack.append(entry)
     consolidated["stack_consolidee"] = all_stack
 
+    # 5. C-levels: fallback from dirigeants if LLM didn't produce them
+    llm_c_levels = consolidated.get("c_levels") or []
+    if not llm_c_levels:
+        # Build c_levels from dirigeants marked is_c_level by MAP
+        c_level_dirigeants = [d for d in all_dirigeants if d.get("is_c_level")]
+        consolidated["c_levels"] = [
+            {
+                "name": d.get("name", ""),
+                "current_title": d.get("current_title", ""),
+                "anciennete_mois": d.get("anciennete_mois"),
+                "role_deduit": _infer_role(d.get("current_title", "")),
+                "pertinence_commerciale": 3,  # default mid-range, agents will refine
+            }
+            for d in c_level_dirigeants
+        ]
+        logger.info(
+            f"REDUCE: Built {len(consolidated['c_levels'])} C-levels from "
+            f"dirigeants (LLM produced 0)"
+        )
+
     # Update metadata counts from actual merged data
     consolidated["profils_total"] = len(all_dirigeants)
     consolidated["profils_c_level"] = len(consolidated.get("c_levels") or [])
@@ -178,7 +223,8 @@ async def reduce_node(state: AuditState) -> dict:
 
     logger.info(
         f"REDUCE: Consolidated {len(all_dirigeants)} profiles (Python-merged), "
-        f"{consolidated.get('profils_c_level', 0)} C-levels (LLM), "
+        f"{consolidated.get('profils_c_level', 0)} C-levels "
+        f"({'Python-fallback' if not llm_c_levels else 'LLM'}), "
         f"{len(all_posts)} posts, {len(all_mouvements)} mouvements, "
         f"{len(all_stack)} stack entries, "
         f"{len(consolidated.get('signaux_pre_detectes', []))} pre-signals"

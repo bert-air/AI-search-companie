@@ -20,6 +20,7 @@ async def main():
         "company_name": "Systra",
         "domain": "systra.com",
         "country": "France",
+        "linkedin_company_url": "https://www.linkedin.com/company/systra/",
         "sales_team": [
             {"name": "Bertran Ruiz", "linkedin_slug": "bertran_ruiz", "role": "AE"},
             {"name": "Thomas Poitau", "linkedin_slug": "thomas_poitau", "role": "AE"},

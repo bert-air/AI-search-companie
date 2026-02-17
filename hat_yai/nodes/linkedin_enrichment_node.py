@@ -353,13 +353,21 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
 
     try:
         # Step 1: Domain → LinkedIn Company ID
-        linkedin_company_id, linkedin_company_url = await _step1_resolve_company(
-            domain, company_name, audit_id
-        )
+        # Shortcut: if linkedin_company_url is pre-set in state, resolve from it
+        pre_set_url = state.get("linkedin_company_url")
+        if pre_set_url:
+            logger.info(f"Step 1: Using pre-set LinkedIn URL: {pre_set_url}")
+            gg_company = await gg.get_company_by_url(pre_set_url)
+            linkedin_company_id = str(gg_company.get("id", ""))
+            linkedin_company_url = gg_company.get("url", pre_set_url)
+        else:
+            linkedin_company_id, linkedin_company_url = await _step1_resolve_company(
+                domain, company_name, audit_id
+            )
 
         if not linkedin_company_id:
             logger.warning("LinkedIn enrichment: Could not resolve company, entering degraded mode")
-            db.update_audit_report(audit_id, {"linkedin_available": False})
+            db.update_audit_report(audit_id, {"ghost_genius_available": False})
             return {
                 "linkedin_company_id": None,
                 "linkedin_company_url": None,
@@ -399,7 +407,7 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
         # Step 5: LinkedIn posts
         posts = await _step5_linkedin_posts(executives, audit_id)
 
-        db.update_audit_report(audit_id, {"linkedin_available": True})
+        db.update_audit_report(audit_id, {"ghost_genius_available": True})
 
         return {
             "linkedin_company_id": linkedin_company_id,
@@ -413,7 +421,7 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
     except RuntimeError as e:
         # All accounts rate-limited
         logger.error(f"LinkedIn enrichment node failed: {e}")
-        db.update_audit_report(audit_id, {"linkedin_available": False})
+        db.update_audit_report(audit_id, {"ghost_genius_available": False})
         return {
             "linkedin_company_id": None,
             "linkedin_company_url": None,
@@ -425,7 +433,7 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
         }
     except Exception as e:
         logger.error(f"LinkedIn enrichment node unexpected error: {e}")
-        db.update_audit_report(audit_id, {"linkedin_available": False})
+        db.update_audit_report(audit_id, {"ghost_genius_available": False})
         return {
             "linkedin_company_id": None,
             "linkedin_company_url": None,
