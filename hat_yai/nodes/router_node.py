@@ -18,6 +18,7 @@ _DYNAMIQUE_SIGNALS = {
     "programme_transfo_annonce",
     "posts_linkedin_transfo",
     "verbatim_douleur_detecte",
+    "turnover_comex_detecte",
 }
 
 _COMEX_ORGA_SIGNALS = {
@@ -26,6 +27,7 @@ _COMEX_ORGA_SIGNALS = {
     "direction_transfo_existe",
     "pmo_identifie",
     "dsi_en_poste_plus_5_ans",
+    "evolution_roles_comex",
 }
 
 
@@ -104,6 +106,7 @@ def route_to_agents(consolidated: dict) -> dict[str, dict]:
             "dirigeants": consolidated.get("dirigeants") or [],
             "c_levels": consolidated.get("c_levels") or [],
             "organigramme_probable": consolidated.get("organigramme_probable") or [],
+            "mouvements_consolides": consolidated.get("mouvements_consolides") or [],
             "stack_consolidee": consolidated.get("stack_consolidee") or [],
             "signaux_pre_detectes": _filter_pre_signals(
                 consolidated, _COMEX_ORGA_SIGNALS

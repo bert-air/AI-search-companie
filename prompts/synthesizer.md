@@ -127,6 +127,7 @@ Pour chaque cible, inclure :
 
 **Contient (exclusivité)** :
 - Score total / max + verdict
+- Sous-scores : Profil (taille, structure, secteur) vs Intent (signaux d'achat, timing, besoins)
 - Data quality score
 - Tableau des signaux : signal_id | status | confidence | points_ponderes | evidence (1 ligne max, 15 mots max)
 
@@ -163,11 +164,31 @@ Produis le rapport en **markdown** structuré avec les 7 sections ci-dessus. En 
 
 ## Bloc Slack (obligatoire, après le rapport)
 
-Après le rapport markdown, ajoute un bloc entre les balises `<!-- SLACK -->` et `<!-- /SLACK -->` contenant exactement 5 bullet points résumant les faits les plus saillants pour un commercial. Chaque ligne commence par `• ` et fait maximum 80 caractères.
+Après le rapport markdown, ajoute un bloc entre les balises `<!-- SLACK -->` et `<!-- /SLACK -->`.
+
+Le bloc Slack doit permettre au commercial de comprendre EN 10 SECONDES si le compte vaut le coup. Format exact :
+
+```
+🏢 [Secteur] | [effectifs] employés | CA [X]M€
+🎯 Cible : [Prénom Nom] — [Titre] ([ancienneté] en poste)
+💡 [Le "pourquoi maintenant" en 1 phrase — le fait le plus déclencheur]
+
+• [Fait saillant 1 — max 80 car]
+• [Fait saillant 2]
+• [Fait saillant 3]
+• [Fait saillant 4]
+• [Fait saillant 5]
+```
+
+Règles :
+- Ligne 🏢 : secteur d'activité + taille (effectifs et/ou CA). Si donnée manquante, omettre.
+- Ligne 🎯 : la cible prioritaire identifiée (signal `cible_prioritaire_identifiee`). Si pas de cible, mettre le DSI/CIO. Indiquer l'ancienneté en poste.
+- Ligne 💡 : le signal d'intent le plus fort (nouveau DSI, programme transfo, verbatim douleur, acquisition, turnover COMEX). UNE phrase, orientée "pourquoi on devrait les contacter MAINTENANT". Si aucun signal d'intent détecté, écrire "Pas de signal d'intent fort identifié".
+- 5 bullet points : les faits les plus actionnables. Max 80 caractères chacun.
 
 Exemples de bonnes lignes :
 - `• LBO Meridiam identifié (2022, 3.4Mds€)`
-- `• DSI et DRH en poste <12 mois — turnover direction`
+- `• DSI en poste 8 mois — remplace ancien DSI classique`
 - `• Stack SAP/Salesforce confirmée par posts LinkedIn`
 - `• 3 connexions C-level directes identifiées`
 - `• Croissance effectifs +8% sur 12 mois`

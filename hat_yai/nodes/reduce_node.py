@@ -141,6 +141,28 @@ async def reduce_node(state: AuditState) -> dict:
                         if new_fields > existing_fields:
                             all_dirigeants[i] = d
                         break
+    # 1bis. Filter out non-employees (profiles from other companies)
+    company_lower = company_name.lower()
+    company_variants = {company_lower, company_lower.replace(" ", ""),
+                        company_lower.replace("-", " "), company_lower.replace("-", "")}
+    pre_filter_count = len(all_dirigeants)
+    filtered_dirigeants = []
+    for d in all_dirigeants:
+        d_company = (d.get("company_name") or "").lower()
+        # Keep if: no company data (benefit of doubt) or company matches target
+        if not d_company or any(v in d_company for v in company_variants):
+            filtered_dirigeants.append(d)
+        else:
+            logger.info(
+                f"REDUCE: Filtered out {d.get('name')} — "
+                f"company '{d.get('company_name')}' ≠ {company_name}"
+            )
+    all_dirigeants = filtered_dirigeants
+    if pre_filter_count != len(all_dirigeants):
+        logger.info(
+            f"REDUCE: Filtered {pre_filter_count - len(all_dirigeants)} "
+            f"non-employee profiles ({pre_filter_count} → {len(all_dirigeants)})"
+        )
     consolidated["dirigeants"] = all_dirigeants
 
     # 2. Posts: merge + deduplicate
@@ -207,6 +229,116 @@ async def reduce_node(state: AuditState) -> dict:
         logger.info(
             f"REDUCE: Built {len(consolidated['c_levels'])} C-levels from "
             f"dirigeants (LLM produced 0)"
+        )
+
+    # 6. PMO detection fallback: scan about, skills, title for PMO IT signals
+    llm_signals = consolidated.get("signaux_pre_detectes") or []
+    pmo_detected_by_llm = any(
+        s.get("signal_id") == "pmo_identifie" and s.get("probable")
+        for s in llm_signals
+    )
+    if not pmo_detected_by_llm:
+        _PMO_KEYWORDS = {"pmo", "project management office", "bureau de projets",
+                         "project portfolio management", "it portfolio management",
+                         "portefeuille projets"}
+        _IT_CONTEXT = {"it", "si", "dsi", "cio", "digital", "informatique",
+                       "systems", "systèmes", "information"}
+        for d in all_dirigeants:
+            # Collect all text fields to scan
+            title = (d.get("current_title") or "").lower()
+            about = (d.get("about") or "").lower()
+            skills = [s.lower() for s in (d.get("skills_cles") or [])]
+            headline = " ".join(d.get("headline_keywords") or []).lower()
+            all_text = f"{title} {about} {headline} {' '.join(skills)}"
+            # Check for PMO keyword match
+            pmo_match = any(kw in all_text for kw in _PMO_KEYWORDS)
+            if pmo_match:
+                # Validate IT context: about/title/skills mention IT-related terms
+                has_it_context = any(ctx in all_text for ctx in _IT_CONTEXT)
+                rattachement = (d.get("rattachement_mentionne") or "").lower()
+                if rattachement:
+                    has_it_context = has_it_context or any(
+                        ctx in rattachement for ctx in _IT_CONTEXT
+                    )
+                if has_it_context:
+                    llm_signals.append({
+                        "signal_id": "pmo_identifie",
+                        "probable": True,
+                        "evidence": f"PMO IT détecté via profil (about/skills/titre)",
+                        "source": d.get("name", ""),
+                    })
+                    consolidated["signaux_pre_detectes"] = llm_signals
+                    logger.info(
+                        f"REDUCE: PMO IT detected (Python-fallback) from "
+                        f"{d.get('name')}"
+                    )
+                    break
+
+    # 7. Turnover COMEX: detect ≥3 C-level departures in 18 months
+    today = date.today()
+    cutoff_month = today.month - 18
+    cutoff_year = today.year
+    while cutoff_month <= 0:
+        cutoff_month += 12
+        cutoff_year -= 1
+    cutoff_str = f"{cutoff_year}-{cutoff_month:02d}"
+
+    c_level_names = {
+        d.get("name", "").lower()
+        for d in all_dirigeants if d.get("is_c_level")
+    }
+    recent_c_departures = [
+        m for m in all_mouvements
+        if m.get("type") in ("depart", "départ")
+        and m.get("date_approx", "") >= cutoff_str
+        and m.get("qui", "").lower() in c_level_names
+    ]
+    if len(recent_c_departures) >= 3:
+        names = [m.get("qui", "") for m in recent_c_departures]
+        llm_signals.append({
+            "signal_id": "turnover_comex_detecte",
+            "probable": True,
+            "evidence": (
+                f"{len(recent_c_departures)} départs C-level en 18 mois: "
+                f"{', '.join(names[:5])}"
+            ),
+            "source": "mouvements_consolides",
+        })
+        consolidated["signaux_pre_detectes"] = llm_signals
+        logger.info(
+            f"REDUCE: COMEX turnover detected — "
+            f"{len(recent_c_departures)} C-level departures in 18 months"
+        )
+
+    # 8. Role evolution: new C-levels with digital/transfo titles + recent departures
+    _DIGITAL_SHIFT_KEYWORDS = {
+        "digital", "transformation", "data", "cdo", "chief digital",
+        "innovation", "numérique",
+    }
+    new_digital_c_levels = []
+    for d in all_dirigeants:
+        if (d.get("is_c_level")
+                and d.get("is_current_employee", True)
+                and (d.get("anciennete_mois") or 999) < 18):
+            title_lower = (d.get("current_title") or "").lower()
+            if any(kw in title_lower for kw in _DIGITAL_SHIFT_KEYWORDS):
+                new_digital_c_levels.append(d.get("name", ""))
+
+    if new_digital_c_levels and recent_c_departures:
+        llm_signals.append({
+            "signal_id": "evolution_roles_comex",
+            "probable": True,
+            "evidence": (
+                f"Nouveaux C-levels digital/transfo: "
+                f"{', '.join(new_digital_c_levels[:3])} + "
+                f"{len(recent_c_departures)} départs récents"
+            ),
+            "source": "dirigeants + mouvements",
+        })
+        consolidated["signaux_pre_detectes"] = llm_signals
+        logger.info(
+            f"REDUCE: Role evolution detected — "
+            f"new digital C-levels: {new_digital_c_levels}"
         )
 
     # Update metadata counts from actual merged data

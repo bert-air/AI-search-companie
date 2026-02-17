@@ -12,6 +12,7 @@ Ton rôle : EXTRAIRE et STRUCTURER. Aucune analyse, aucune conclusion, aucun sig
   "poste_debut": "YYYY-MM",
   "anciennete_mois": N,
   "is_c_level": bool,
+  "is_current_employee": bool,
   "entreprises_precedentes": [
     {"nom": "", "poste": "", "duree_mois": N}
   ],
@@ -19,15 +20,20 @@ Ton rôle : EXTRAIRE et STRUCTURER. Aucune analyse, aucune conclusion, aucun sig
   "rattachement_mentionne": "" | null,
   "personnes_mentionnees": [],
   "skills_cles": [],
-  "connected_with": [] | null
+  "connected_with": [] | null,
+  "about": "" | null,
+  "company_name": "" | null
 }
 
 Règles :
+- is_current_employee : recopier tel quel depuis les données fournies (champ is_current_employee). Si absent, mettre true par défaut.
 - is_c_level = true si le titre contient : CEO, COO, CFO, CIO, CTO, CDO, CMO, CHRO, CSO, Chief, Directeur Général, DG, PDG, Président, VP, SVP, EVP, Managing Director, DSI, Directeur des Systèmes d'Information, Directeur Digital, Directeur Transformation.
 - entreprises_precedentes : les 3 plus récentes avant le poste actuel. Juste nom entreprise + titre + durée.
 - rattachement_mentionne : si un supérieur ou rattachement est mentionné dans le profil, les posts, ou les expériences.
 - personnes_mentionnees : noms de personnes de {{company_name}} mentionnées dans les posts de ce dirigeant.
 - connected_with : recopier tel quel depuis les données fournies.
+- about : si le champ linkedin_about est présent dans le profil, le recopier tel quel. C'est la section "Infos" / "About" de LinkedIn.
+- company_name : nom de l'entreprise actuelle du dirigeant, tel qu'indiqué dans son profil LinkedIn (champ company_name). Si absent, déduire du current_title ou des expériences.
 
 ## Pour chaque post PERTINENT, produis :
 

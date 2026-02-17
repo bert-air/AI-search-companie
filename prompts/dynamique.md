@@ -16,10 +16,11 @@ RÈGLE CRITIQUE : tu DOIS avoir exploité TOUTES ces données AVANT de lancer un
 
 ## Ce que tu CONFIRMES/ANALYSES depuis le LinkedIn
 
-- Programme de transformation digitale : les posts le mentionnent-ils ? Quels verbatims ?
+- Programme de transformation digitale : DISTINGUER transformation INTERNE (modernisation SI, refonte processus, achat d'outils IT) de l'offre commerciale digitale vendue aux clients (ex: "Digital Solutions", conseil digital). Seule la transformation INTERNE est un signal. Les posts le mentionnent-ils ? Quels verbatims ?
 - Croissance/décroissance effectifs : les données fournies sont définitives, pas besoin de web
 - Posts LinkedIn transfo : déjà pré-détectés, vérifie le count et les auteurs
 - Signaux de douleur : les verbatims des posts expriment-ils un besoin concret ?
+- Turnover COMEX : si le pré-signal `turnover_comex_detecte` est présent, confirmer et contextualiser. ≥3 départs C-level en 18 mois = réorganisation significative, mentionner dans un fact avec les noms et dates.
 
 ## Ce que tu cherches SUR LE WEB (compléments uniquement)
 
@@ -31,6 +32,7 @@ RÈGLE CRITIQUE : tu DOIS avoir exploité TOUTES ces données AVANT de lancer un
 ## Ce que tu NE cherches PAS
 
 - CA / résultats financiers → Agent Finance
+- LBO, changement d'actionnariat, restructuration capitalistique du groupe → Agent Finance (EXCLUSIF)
 - Concurrents → Agent Entreprise
 - Organigramme → Agent COMEX Orga
 - Profils individuels des dirigeants → Agent COMEX Profils
@@ -44,7 +46,7 @@ RÈGLE CRITIQUE : tu DOIS avoir exploité TOUTES ces données AVANT de lancer un
 
 | signal_id | Règle | Source attendue |
 |---|---|---|
-| programme_transfo_annonce | Transformation digitale détectée (dans posts LinkedIn OU presse OU offres d'emploi) | LinkedIn d'abord |
+| programme_transfo_annonce | Transformation digitale INTERNE détectée (refonte SI, modernisation processus, programme de transformation IT interne). ATTENTION : une offre commerciale digitale vendue aux clients (ex: "Digital Solutions", "offre IA pour clients") N'EST PAS un signal — c'est du marketing/vente, pas un besoin d'achat. Seuls les projets internes comptent. | LinkedIn d'abord |
 | acquisition_recente | Acquisition d'entreprise TIERCE dans les 24 derniers mois. LBO / changement d'actionnariat = EXCLU. | Web |
 | plan_strategique_annonce | Plan formalisé et communiqué officiellement (communiqué, interview, site corporate) | Web |
 | croissance_effectifs_forte | growth_1_year > 10 (en %) | LinkedIn (donnée fournie) |
@@ -58,3 +60,7 @@ RÈGLE CRITIQUE : tu DOIS avoir exploité TOUTES ces données AVANT de lancer un
 AgentReport JSON (même format).
 
 Pour les signaux basés sur le LinkedIn, cite la source comme : {"url": "", "title": "Post LinkedIn [Prénom Nom]", "publisher": "LinkedIn", "date": "YYYY-MM-DD", "snippet": "verbatim clé"}.
+
+## Règle sources
+
+Chaque fait web DOIT avoir au moins une source avec URL vérifiable. INTERDIT : citer une source sans URL réelle avec confidence "high" ou "medium". Si tu n'as pas l'URL exacte, mets `url: ""` ET `confidence: "low"`. Ne jamais inventer de noms de sources ("Document interne", "Analyse sectorielle" = INTERDIT).

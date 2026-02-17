@@ -450,6 +450,7 @@ async def run_agent(
             report = await _run_extraction(use_opus=True)
 
         _validate_sources(report)
+        report.data_quality.confidence_overall = _compute_confidence_overall(report)
         return {"agent_reports": [report.model_dump()]}
 
     except Exception as e:
@@ -510,6 +511,21 @@ _FAKE_PUBLISHERS = {
     "document interne", "analyse sectorielle", "étude sectorielle",
     "rapport interne", "source interne", "analyse interne",
 }
+
+
+def _compute_confidence_overall(report: AgentReport) -> str:
+    """Compute aggregate confidence from facts and signals (post-validation)."""
+    all_conf = [f.confidence for f in report.facts]
+    all_conf += [s.confidence for s in report.signals if s.status != "UNKNOWN"]
+    if not all_conf:
+        return "medium"
+    low_pct = sum(1 for c in all_conf if c == "low") / len(all_conf)
+    if low_pct > 0.5:
+        return "low"
+    high_pct = sum(1 for c in all_conf if c == "high") / len(all_conf)
+    if high_pct > 0.5:
+        return "high"
+    return "medium"
 
 
 def _validate_sources(report: AgentReport) -> None:
