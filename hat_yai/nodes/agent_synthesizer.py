@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -43,7 +44,18 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
         SystemMessage(content=system_prompt),
         HumanMessage(content="\n".join(context_parts)),
     ])
-    final_report = response.content
+    raw_output = response.content
+
+    # --- Extract Slack recap block from LLM output ---
+    slack_recap = ""
+    match = re.search(r"<!-- SLACK -->\s*(.*?)\s*<!-- /SLACK -->", raw_output, re.DOTALL)
+    if match:
+        slack_recap = match.group(1).strip()
+        final_report = raw_output[: match.start()].rstrip() + raw_output[match.end() :]
+        final_report = final_report.strip()
+    else:
+        logger.warning("Synthesizer: No <!-- SLACK --> block found in LLM output")
+        final_report = raw_output
 
     # --- Determine final status ---
     has_errors = bool(state.get("node_errors"))
@@ -131,9 +143,12 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
         await send_slack_notification(
             company_name=company_name,
             score_total=scoring.get("score_total", 0),
+            score_max=scoring.get("score_max", 330),
+            verdict=scoring.get("verdict", "PASS"),
             data_quality_score=scoring.get("data_quality_score", 0),
             deal_id=deal_id,
             status=final_status,
+            slack_recap=slack_recap,
         )
         logger.info(f"Slack: Notification sent for {company_name}")
     except Exception as e:

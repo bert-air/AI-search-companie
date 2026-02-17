@@ -160,3 +160,16 @@ Tu reçois dans le contexte :
 ## Format de sortie
 
 Produis le rapport en **markdown** structuré avec les 7 sections ci-dessus. En français.
+
+## Bloc Slack (obligatoire, après le rapport)
+
+Après le rapport markdown, ajoute un bloc entre les balises `<!-- SLACK -->` et `<!-- /SLACK -->` contenant exactement 5 bullet points résumant les faits les plus saillants pour un commercial. Chaque ligne commence par `• ` et fait maximum 80 caractères.
+
+Exemples de bonnes lignes :
+- `• LBO Meridiam identifié (2022, 3.4Mds€)`
+- `• DSI et DRH en poste <12 mois — turnover direction`
+- `• Stack SAP/Salesforce confirmée par posts LinkedIn`
+- `• 3 connexions C-level directes identifiées`
+- `• Croissance effectifs +8% sur 12 mois`
+
+Priorise : événements déclencheurs, signaux forts (verbatim, turnover, stack), connexions. Pas de répétition du nom de l'entreprise (il est déjà dans le titre Slack).

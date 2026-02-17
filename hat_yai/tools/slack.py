@@ -17,30 +17,38 @@ logger = logging.getLogger(__name__)
 async def send_slack_notification(
     company_name: str,
     score_total: int,
+    score_max: int,
+    verdict: str,
     data_quality_score: float,
     deal_id: str,
     status: str,
+    slack_recap: str = "",
 ) -> bool:
     """Send a summary notification to Slack via webhook."""
     deal_url = f"https://app.hubspot.com/contacts/undefined/deal/{deal_id}"
 
-    emoji = "🟢" if score_total >= 50 else "🟡" if score_total >= 20 else "🔴"
+    emoji = {"GO": "🟢", "EXPLORE": "🟡", "PASS": "🔴"}.get(verdict, "⚪")
     status_text = "Audit terminé" if status == "completed" else f"Audit terminé ({status})"
 
+    # Build message body: recap + KPIs
+    lines = [f"{emoji} *[{company_name}] — {status_text}*", ""]
+    if slack_recap:
+        lines.append(slack_recap)
+    else:
+        lines.append("• _Aucun récapitulatif disponible_")
+    lines.append("")
+    lines.append(f"📊 Score : *{score_total}/{score_max}* — *{verdict}*")
+    lines.append(f"📋 Qualité données : *{data_quality_score:.0f}%*")
+    lines.append(f"🔗 <{deal_url}|Voir le deal HubSpot>")
+
+    body = "\n".join(lines)
+
     message = {
-        "text": f"{emoji} *{status_text} — {company_name}*",
+        "text": f"{emoji} [{company_name}] — {status_text}",
         "blocks": [
             {
                 "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"{emoji} *{status_text} — {company_name}*\n"
-                        f"• Score : *{score_total}* points\n"
-                        f"• Qualité données : *{data_quality_score:.0f}%*\n"
-                        f"• <{deal_url}|Voir le deal HubSpot>"
-                    ),
-                },
+                "text": {"type": "mrkdwn", "text": body},
             }
         ],
     }
