@@ -6,6 +6,7 @@ Spec reference: Section 7.8 (Synthétiseur output).
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 import httpx
 
@@ -34,6 +35,7 @@ async def create_deal_note(deal_id: str, note_body: str) -> bool:
             json={
                 "properties": {
                     "hs_note_body": note_body,
+                    "hs_timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             },
         )
