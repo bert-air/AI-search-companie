@@ -47,7 +47,7 @@ async def send_slack_notification(
     body = "\n".join(lines)
 
     message = {
-        "text": f"{emoji} [{company_name}] — {status_text}",
+        "text": body,
         "blocks": [
             {
                 "type": "section",
