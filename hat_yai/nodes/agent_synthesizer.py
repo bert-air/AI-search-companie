@@ -17,7 +17,7 @@ from hat_yai.state import AuditState
 from hat_yai.tools import supabase_db as db
 from hat_yai.tools.hubspot import create_deal_note
 from hat_yai.tools.slack import send_slack_notification
-from hat_yai.utils.llm import get_llm, load_prompt
+from hat_yai.utils.llm import get_fast_llm, load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
         json.dumps(scoring, ensure_ascii=False, indent=2),
     ]
 
-    llm = get_llm(max_tokens=8192)
+    llm = get_fast_llm(max_tokens=8192)
     response = await llm.ainvoke([
         SystemMessage(content=system_prompt),
         HumanMessage(content="\n".join(context_parts)),

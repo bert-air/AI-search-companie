@@ -133,7 +133,7 @@ async def _step3_search_executives(
       3a) Seniority-based (current + past, CXO/VP/Owner/Director)
       3b) Keyword-based (current only, title keywords like PMO, manager IT, etc.)
 
-    Primary: Evaboot. Fallback: Ghost Genius.
+    Priority: Evaboot → Unipile → Ghost Genius.
     Both passes use region filter. Results are merged and deduped, cap at 50.
     """
     # --- 3a: Seniority search (current + past) ---
@@ -141,16 +141,23 @@ async def _step3_search_executives(
         current, past = await evaboot.search_executives(
             linkedin_company_id, company_name, region_id, region_name,
         )
-        logger.info("Step 3a: Using Evaboot for seniority search")
+        logger.info("Step 3a: Evaboot seniority search succeeded")
     except Exception as e:
-        logger.warning(f"Step 3a: Evaboot failed ({e}), falling back to Ghost Genius")
+        logger.warning(f"Step 3a: Evaboot failed ({e}), trying Unipile")
         try:
-            current = await gg.search_executives_current(linkedin_company_id, locations=region_id)
-            past = await gg.search_executives_past(linkedin_company_id, locations=region_id)
-            logger.info("Step 3a: Using Ghost Genius fallback for seniority search")
+            current, past = await unipile.search_executives(
+                linkedin_company_id, company_name, region_id, region_name,
+            )
+            logger.info("Step 3a: Unipile seniority search succeeded")
         except Exception as e2:
-            logger.error(f"Step 3a: Ghost Genius also failed ({e2}), no executives found")
-            current, past = [], []
+            logger.warning(f"Step 3a: Unipile failed ({e2}), falling back to Ghost Genius")
+            try:
+                current = await gg.search_executives_current(linkedin_company_id, locations=region_id)
+                past = await gg.search_executives_past(linkedin_company_id, locations=region_id)
+                logger.info("Step 3a: Ghost Genius fallback succeeded")
+            except Exception as e3:
+                logger.error(f"Step 3a: All 3 APIs failed ({e3}), no executives found")
+                current, past = [], []
 
     # --- 3b: Keyword search (current only) ---
     keyword_results: list[dict] = []
@@ -160,16 +167,23 @@ async def _step3_search_executives(
         )
         logger.info(f"Step 3b: Evaboot keyword search found {len(keyword_results)} profiles")
     except Exception as e:
-        logger.warning(f"Step 3b: Evaboot keywords failed ({e}), falling back to Ghost Genius")
+        logger.warning(f"Step 3b: Evaboot keywords failed ({e}), trying Unipile")
         try:
-            keywords_str = " ".join(TITLE_SEARCH_KEYWORDS)
-            keyword_results = await gg.search_executives_by_keywords(
-                linkedin_company_id, keywords=keywords_str, locations=region_id,
+            keyword_results = await unipile.search_executives_by_keywords(
+                linkedin_company_id, company_name, TITLE_SEARCH_KEYWORDS, region_id, region_name,
             )
-            logger.info(f"Step 3b: Ghost Genius keyword search found {len(keyword_results)} profiles")
+            logger.info(f"Step 3b: Unipile keyword search found {len(keyword_results)} profiles")
         except Exception as e2:
-            logger.error(f"Step 3b: Ghost Genius also failed ({e2}), no keyword results")
-            keyword_results = []
+            logger.warning(f"Step 3b: Unipile keywords failed ({e2}), falling back to Ghost Genius")
+            try:
+                keywords_str = " ".join(TITLE_SEARCH_KEYWORDS)
+                keyword_results = await gg.search_executives_by_keywords(
+                    linkedin_company_id, keywords=keywords_str, locations=region_id,
+                )
+                logger.info(f"Step 3b: Ghost Genius keyword search found {len(keyword_results)} profiles")
+            except Exception as e3:
+                logger.error(f"Step 3b: All 3 APIs failed ({e3}), no keyword results")
+                keyword_results = []
 
     # --- Merge and deduplicate ---
     seen_ids: set[str] = set()
@@ -401,30 +415,23 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
             "linkedin_company_url": linkedin_company_url,
         })
 
-        # Step 2: Employees Growth (Unipile primary, Ghost Genius backup)
-        growth = _step2_employees_growth(domain, company_name)
-        if growth is None:
-            # Cache miss — try Unipile first (primary)
+        # Step 2: Employees Growth — always re-fetch (no cache)
+        # Priority: Unipile → Ghost Genius
+        growth = {}
+        try:
+            growth = await unipile.get_employees_growth(linkedin_company_url)
+        except Exception as e:
+            logger.warning(f"Step 2: Unipile failed: {e}")
+
+        if not _is_growth_useful(growth):
+            logger.info("Step 2: Unipile empty, trying Ghost Genius fallback")
             try:
-                growth = await unipile.get_employees_growth(linkedin_company_url)
+                gg_growth = await gg.get_employees_growth(linkedin_company_url)
+                if _is_growth_useful(gg_growth):
+                    growth = gg_growth
+                    logger.info("Step 2: Ghost Genius fallback succeeded")
             except Exception as e:
-                logger.warning(f"Step 2: Unipile failed: {e}")
-                growth = {}
-
-            # Fallback to Ghost Genius if Unipile returned empty
-            if not _is_growth_useful(growth):
-                logger.info("Step 2: Unipile empty, trying Ghost Genius fallback")
-                try:
-                    gg_growth = await gg.get_employees_growth(linkedin_company_url)
-                    if _is_growth_useful(gg_growth):
-                        growth = gg_growth
-                        logger.info("Step 2: Ghost Genius fallback succeeded")
-                except Exception as e:
-                    logger.warning(f"Step 2: Ghost Genius fallback also failed: {e}")
-
-            # Cache only if useful (avoid zombie cache)
-            if _is_growth_useful(growth):
-                db.update_enriched_companies_growth(domain, growth, company_name)
+                logger.warning(f"Step 2: Ghost Genius fallback also failed: {e}")
 
         # Step 3: Search executives (seniority + keyword, with region filter)
         executives = await _step3_search_executives(

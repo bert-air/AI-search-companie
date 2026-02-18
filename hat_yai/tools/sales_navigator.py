@@ -1,7 +1,7 @@
 """Sales Navigator search tool for LLM agents.
 
-Synchronous LangChain @tool that searches LinkedIn Sales Navigator by title keywords
-via Evaboot API (POST extraction + polling).
+Synchronous LangChain @tool that searches LinkedIn Sales Navigator by title keywords.
+Priority: Evaboot → Unipile → error.
 
 Called by agents during their ReAct loop — must be synchronous because
 agent_runner.py calls tool_fn.invoke() from within an async event loop.
@@ -20,6 +20,7 @@ from hat_yai.tools.evaboot import (
     _build_sales_nav_title_url,
     _prospect_to_exec,
 )
+from hat_yai.tools.unipile import _get_account_id, _headers as _unipile_headers, _map_person_to_exec
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,37 @@ def _evaboot_search_sync(
         raise RuntimeError("Evaboot extraction timed out")
 
 
+def _unipile_search_sync(
+    linkedin_company_id: str,
+    company_name: str,
+    title_keywords: list[str],
+    region_id: str = "",
+    region_name: str = "",
+) -> list[dict]:
+    """Synchronous Unipile keyword search via Sales Navigator URL."""
+    account_id = _get_account_id()
+    if not account_id:
+        raise RuntimeError("Unipile: no account_id available")
+    if not settings.unipile_api_key:
+        raise RuntimeError("Unipile: API key not configured")
+
+    url = _build_sales_nav_title_url(
+        linkedin_company_id, company_name, title_keywords, region_id, region_name,
+    )
+
+    with httpx.Client(timeout=60.0) as client:
+        resp = client.post(
+            f"{settings.unipile_base_url}/linkedin/search",
+            params={"account_id": account_id},
+            headers=_unipile_headers(),
+            json={"url": url},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items", [])
+        return [_map_person_to_exec(p, True) for p in items]
+
+
 def _format_results(results: list[dict]) -> str:
     """Format search results for the agent."""
     if not results:
@@ -150,7 +182,15 @@ def make_search_sales_nav_tool(
             logger.info(f"Sales Nav tool: Evaboot returned {len(results)} results for '{title_keywords}'")
             return _format_results(results)
         except Exception as e:
-            logger.error(f"Sales Nav tool: Evaboot failed ({e})")
-            return f"Erreur : recherche Sales Navigator échouée. ({e})"
+            logger.warning(f"Sales Nav tool: Evaboot failed ({e}), trying Unipile")
+            try:
+                results = _unipile_search_sync(
+                    linkedin_company_id, company_name, keywords_list, region_id, region_name,
+                )
+                logger.info(f"Sales Nav tool: Unipile returned {len(results)} results for '{title_keywords}'")
+                return _format_results(results)
+            except Exception as e2:
+                logger.error(f"Sales Nav tool: Unipile also failed ({e2})")
+                return f"Erreur : recherche Sales Navigator échouée (Evaboot: {e}, Unipile: {e2})"
 
     return search_sales_navigator
