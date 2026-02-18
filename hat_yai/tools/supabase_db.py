@@ -7,6 +7,7 @@ Spec reference: Section 8 + Section 9.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -24,10 +25,25 @@ def _get_client() -> Client:
 
 # --- enriched_companies (existing table, read + update growth) ---
 
+def _normalize_domain_pattern(domain: str) -> str:
+    """Build a LIKE pattern that matches domain regardless of protocol/www/path.
+
+    'saint-gobain.com' → '%saint-gobain.com%'
+    'http://www.saint-gobain.com' → '%saint-gobain.com%'
+    'https://www.saint-gobain.com/fr' → '%saint-gobain.com%'
+    """
+    d = re.sub(r'^https?://', '', domain)
+    d = re.sub(r'^www\.', '', d)
+    d = d.split('/')[0]
+    d = d.split('?')[0]
+    return f"%{d}%"
+
+
 def read_enriched_company(domain: str, company_name: str = "") -> Optional[dict]:
     """SELECT from enriched_companies by domain, falling back to name."""
     client = _get_client()
-    result = client.table("enriched_companies").select("*").ilike("domain", domain).limit(1).execute()
+    pattern = _normalize_domain_pattern(domain)
+    result = client.table("enriched_companies").select("*").ilike("domain", pattern).limit(1).execute()
     if result.data:
         return result.data[0]
     # Fallback: search by company name (exact case-insensitive match)

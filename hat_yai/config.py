@@ -36,6 +36,10 @@ class Settings:
     # Slack
     slack_webhook_url: str = ""
 
+    # Unipile
+    unipile_api_key: str = ""
+    unipile_base_url: str = "https://api25.unipile.com:15595/api/v1"
+
 
 def load_settings() -> Settings:
     account_ids_raw = os.getenv("GHOST_GENIUS_ACCOUNT_IDS", "")
@@ -54,6 +58,8 @@ def load_settings() -> Settings:
         hubspot_api_key=os.getenv("HUBSPOT_API_KEY", ""),
         hubspot_portal_id=os.getenv("HUBSPOT_PORTAL_ID", ""),
         slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL", ""),
+        unipile_api_key=os.getenv("UNIPILE_API_KEY", ""),
+        unipile_base_url=os.getenv("UNIPILE_BASE_URL", "https://api25.unipile.com:15595/api/v1"),
     )
 
 

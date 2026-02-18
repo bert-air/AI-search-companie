@@ -142,11 +142,13 @@ async def router_node(state: AuditState) -> dict:
     consolidated = state.get("consolidated_linkedin") or {}
 
     if not consolidated or not consolidated.get("dirigeants"):
-        logger.info("Router: No consolidated data, producing empty slices")
+        logger.info("Router: No consolidated data, producing minimal slices")
+        # Still pass growth data even without profiles
+        growth = consolidated.get("croissance_effectifs")
         return {"agent_context_slices": {
-            "finance": {},
+            "finance": {"croissance_effectifs": growth} if growth else {},
             "entreprise": {},
-            "dynamique": {},
+            "dynamique": {"croissance_effectifs": growth} if growth else {},
             "comex_organisation": {},
             "comex_profils": {},
             "connexions": {},

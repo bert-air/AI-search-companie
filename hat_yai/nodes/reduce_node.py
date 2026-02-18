@@ -62,7 +62,13 @@ async def reduce_node(state: AuditState) -> dict:
 
     if not lot_results:
         logger.info("REDUCE: No MAP results to consolidate")
-        return {"consolidated_linkedin": _empty_consolidated(company_name)}
+        empty = _empty_consolidated(company_name)
+        # Still inject growth data even without MAP lots
+        growth = state.get("linkedin_employees_growth")
+        if growth:
+            empty["croissance_effectifs"] = growth
+            logger.info("REDUCE: Injected growth data into empty consolidated")
+        return {"consolidated_linkedin": empty}
 
     total_lots = len(lot_results)
 
