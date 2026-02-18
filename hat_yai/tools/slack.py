@@ -23,9 +23,11 @@ async def send_slack_notification(
     deal_id: str,
     status: str,
     slack_recap: str = "",
+    score_profil: int = 0,
+    score_intent: int = 0,
 ) -> bool:
     """Send a summary notification to Slack via webhook."""
-    deal_url = f"https://app.hubspot.com/contacts/undefined/deal/{deal_id}"
+    deal_url = f"https://app.hubspot.com/contacts/{settings.hubspot_portal_id}/record/0-3/{deal_id}/"
 
     emoji = {"GO": "🟢", "EXPLORE": "🟡", "PASS": "🔴"}.get(verdict, "⚪")
     status_text = "Audit terminé" if status == "completed" else f"Audit terminé ({status})"
@@ -38,6 +40,7 @@ async def send_slack_notification(
         lines.append("• _Aucun récapitulatif disponible_")
     lines.append("")
     lines.append(f"📊 Score : *{score_total}/{score_max}* — *{verdict}*")
+    lines.append(f"   → Profil : *{score_profil}* pts | Intent : *{score_intent}* pts")
     lines.append(f"📋 Qualité données : *{data_quality_score:.0f}%*")
     lines.append(f"🔗 <{deal_url}|Voir le deal HubSpot>")
 

@@ -34,6 +34,10 @@ Ces données montrent comment les dirigeants positionnent eux-mêmes l'entrepris
 |---|---|
 | secteur_en_declin | CA sectoriel global en baisse sur ≥2 ans consécutifs, avec sources vérifiables. Un ralentissement de croissance n'est PAS un déclin. |
 
+## Règle sources
+
+Chaque fait DOIT avoir au moins une source avec URL vérifiable. INTERDIT : citer une source sans URL réelle. Si tu n'as pas l'URL exacte, mets `url: ""` ET `confidence: "low"`. Ne mets JAMAIS confidence "high" ou "medium" sans URL réelle. Ne jamais inventer de noms de sources ("Document interne", "Analyse sectorielle" = INTERDIT).
+
 ## Format de sortie
 
 AgentReport JSON (même format que les autres agents).

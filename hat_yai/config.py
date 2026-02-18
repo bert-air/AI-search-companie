@@ -28,6 +28,7 @@ class Settings:
 
     # HubSpot
     hubspot_api_key: str = ""
+    hubspot_portal_id: str = ""
 
     # Evaboot
     evaboot_api_key: str = ""
@@ -51,6 +52,7 @@ def load_settings() -> Settings:
         supabase_enrich_url=os.getenv("SUPABASE_ENRICH_URL", ""),
         evaboot_api_key=os.getenv("EVABOOT_API_KEY", ""),
         hubspot_api_key=os.getenv("HUBSPOT_API_KEY", ""),
+        hubspot_portal_id=os.getenv("HUBSPOT_PORTAL_ID", ""),
         slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL", ""),
     )
 

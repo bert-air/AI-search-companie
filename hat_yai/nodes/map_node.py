@@ -149,7 +149,9 @@ async def map_node(state: AuditState) -> dict:
     lot_results = []
     for i, result in enumerate(results):
         if isinstance(result, Exception):
-            logger.error(f"MAP: Lot {i + 1}/{total_lots} failed: {result}")
+            # Log full validation details for debugging
+            err_detail = str(result)[:500]
+            logger.error(f"MAP: Lot {i + 1}/{total_lots} failed: {err_detail}")
         elif result is not None:
             lot_results.append(result.model_dump())
         else:

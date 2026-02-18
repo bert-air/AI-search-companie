@@ -47,7 +47,7 @@ En te basant UNIQUEMENT sur les données LinkedIn consolidées, pré-évalue ces
 | nouveau_dsi_dir_transfo | Un dirigeant DSI/CIO/CDO/Dir Transfo avec anciennete_mois < 12 |
 | posts_linkedin_transfo | ≥2 posts de dirigeants C-level avec topic transformation_digitale dans les 6 derniers mois |
 | direction_transfo_existe | Un dirigeant avec titre contenant "Transformation" ou "Digital" (hors DSI pur) identifié |
-| pmo_identifie | Un dirigeant ou profil avec titre contenant "PMO" ou "Bureau de projets" ou "Project Management Office" |
+| pmo_identifie | Un PMO IT/Digital identifié. Chercher dans TOUS les champs du profil : current_title, about, headline_keywords, skills_cles. Mots-clés : "PMO", "Bureau de projets", "Project Management Office", "IT Portfolio Management", "Project Portfolio Management". VALIDATION : vérifier que le contexte indique un PMO IT (gestion de portefeuille de projets IT/SI, rattachement DSI/CIO) et non un chef de projet isolé ou un PMO métier (construction, etc.) |
 | dsi_en_poste_plus_5_ans | Le DSI/CIO principal a anciennete_mois > 60 |
 | verbatim_douleur_detecte | ≥1 post avec verbatim_cle non-null qui exprime un besoin/défi opérationnel |
 | dirigeant_actif_linkedin | La personne avec pertinence_commerciale la plus élevée a ≥4 posts dans les données |

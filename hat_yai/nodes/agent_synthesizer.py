@@ -64,9 +64,12 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
     # --- Build per-agent report fields for Supabase ---
     report_updates: dict = {
         "final_report": final_report,
+        "slack_recap": slack_recap,
         "scoring_signals": scoring.get("scoring_signals"),
         "score_total": scoring.get("score_total"),
         "score_max": scoring.get("score_max", 330),
+        "score_profil": scoring.get("score_profil", 0),
+        "score_intent": scoring.get("score_intent", 0),
         "data_quality_score": scoring.get("data_quality_score"),
         "verdict": scoring.get("verdict"),
         "status": final_status,
@@ -149,6 +152,8 @@ async def agent_synthesizer_node(state: AuditState) -> dict:
             deal_id=deal_id,
             status=final_status,
             slack_recap=slack_recap,
+            score_profil=scoring.get("score_profil", 0),
+            score_intent=scoring.get("score_intent", 0),
         )
         logger.info(f"Slack: Notification sent for {company_name}")
     except Exception as e:
