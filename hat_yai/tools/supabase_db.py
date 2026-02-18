@@ -158,8 +158,17 @@ def create_audit_report(
     company_name: str,
     domain: str,
 ) -> str:
-    """INSERT into ai_agent_company_audit_reports. Returns the report UUID."""
+    """INSERT into ai_agent_company_audit_reports. Returns the report UUID.
+
+    If a report already exists for this (deal_id, stage_id), delete it first
+    so the audit can be re-run cleanly.
+    """
     client = _get_client()
+    # Delete previous report for same deal+stage (allows re-runs)
+    client.table("ai_agent_company_audit_reports").delete().eq(
+        "deal_id", deal_id
+    ).eq("stage_id", stage_id).execute()
+
     result = client.table("ai_agent_company_audit_reports").insert({
         "deal_id": deal_id,
         "stage_id": stage_id,

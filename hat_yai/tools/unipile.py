@@ -1,9 +1,11 @@
-"""Unipile API — primary source for employee growth data.
+"""Unipile API — primary source for employee growth + executive search fallback.
 
 Plain async functions (NOT LangChain @tool). Called by linkedin_enrichment_node.
-Ghost Genius is used as fallback when Unipile fails.
+Priority chain: Evaboot → Unipile → Ghost Genius.
 
-Spec reference: Unipile company insights endpoint.
+Endpoints used:
+- GET  /linkedin/company/{slug}  — employee growth data
+- POST /linkedin/search           — people search via Sales Navigator URL
 """
 
 from __future__ import annotations
@@ -180,3 +182,131 @@ async def get_employees_growth(linkedin_company_url: str) -> dict:
                     return {}
 
     return {}
+
+
+# ---------------------------------------------------------------------------
+# People search via Sales Navigator URL
+# ---------------------------------------------------------------------------
+
+def _map_person_to_exec(person: dict, is_current: bool) -> dict:
+    """Convert a Unipile search result item to canonical exec_data format."""
+    public_url = person.get("public_profile_url", "")
+    return {
+        "id": person.get("public_identifier") or person.get("id") or public_url,
+        "full_name": person.get("name") or f"{person.get('first_name', '')} {person.get('last_name', '')}".strip(),
+        "url": public_url,
+        "headline": person.get("headline", ""),
+        "is_current_employee": is_current,
+    }
+
+
+async def search_linkedin(sales_nav_url: str) -> list[dict]:
+    """Execute a Sales Navigator search via Unipile.
+
+    POST /linkedin/search?account_id={id}  with body {"url": "<sales_nav_url>"}
+    Returns the raw items list from Unipile response, or [].
+    """
+    account_id = _get_account_id()
+    if not account_id:
+        logger.warning("Unipile search: no account_id available")
+        return []
+
+    if not settings.unipile_api_key:
+        logger.warning("Unipile search: API key not configured")
+        return []
+
+    endpoint = f"{settings.unipile_base_url}/linkedin/search"
+    params = {"account_id": account_id}
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for attempt in range(3):
+            try:
+                resp = await client.post(
+                    endpoint,
+                    params=params,
+                    headers=_headers(),
+                    json={"url": sales_nav_url},
+                )
+
+                if resp.status_code == 429:
+                    if attempt < 2:
+                        logger.warning(f"Unipile search: 429 rate limit, retry {attempt + 1}/2 in 5s")
+                        await asyncio.sleep(5)
+                        continue
+                    else:
+                        logger.error("Unipile search: 429 after 2 retries, giving up")
+                        return []
+
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get("items", [])
+                total = data.get("paging", {}).get("total_count", len(items))
+                logger.info(f"Unipile search: {len(items)} items returned (total={total})")
+                return items
+
+            except httpx.HTTPStatusError as e:
+                logger.warning(f"Unipile search: HTTP {e.response.status_code}")
+                return []
+            except Exception as e:
+                if attempt < 2:
+                    logger.warning(f"Unipile search: error ({e}), retry {attempt + 1}/2 in 5s")
+                    await asyncio.sleep(5)
+                else:
+                    logger.error(f"Unipile search: failed after retries: {e}")
+                    return []
+
+    return []
+
+
+async def search_executives(
+    linkedin_company_id: str,
+    company_name: str,
+    region_id: str = "",
+    region_name: str = "",
+) -> tuple[list[dict], list[dict]]:
+    """Search executives by seniority via Unipile (reuses Evaboot URL builders).
+
+    Returns (current_executives, past_executives) in canonical exec_data format.
+    """
+    from hat_yai.tools.evaboot import _build_sales_nav_url
+
+    url_current = _build_sales_nav_url(
+        linkedin_company_id, company_name, "CURRENT_COMPANY", region_id, region_name,
+    )
+    url_past = _build_sales_nav_url(
+        linkedin_company_id, company_name, "PAST_COMPANY", region_id, region_name,
+    )
+
+    items_current, items_past = await asyncio.gather(
+        search_linkedin(url_current),
+        search_linkedin(url_past),
+    )
+
+    current = [_map_person_to_exec(p, True) for p in items_current]
+    past = [_map_person_to_exec(p, False) for p in items_past]
+
+    logger.info(f"Unipile executives: {len(current)} current, {len(past)} past")
+    return current, past
+
+
+async def search_executives_by_keywords(
+    linkedin_company_id: str,
+    company_name: str,
+    title_keywords: list[str],
+    region_id: str = "",
+    region_name: str = "",
+) -> list[dict]:
+    """Search current employees by title keywords via Unipile.
+
+    Returns list of exec_data dicts in canonical format.
+    """
+    from hat_yai.tools.evaboot import _build_sales_nav_title_url
+
+    url = _build_sales_nav_title_url(
+        linkedin_company_id, company_name, title_keywords, region_id, region_name,
+    )
+
+    items = await search_linkedin(url)
+    results = [_map_person_to_exec(p, True) for p in items]
+    logger.info(f"Unipile keyword search: {len(results)} results for {title_keywords}")
+    return results
