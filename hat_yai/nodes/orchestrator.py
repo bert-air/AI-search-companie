@@ -17,12 +17,31 @@ from hat_yai.tools import supabase_db as db
 logger = logging.getLogger(__name__)
 
 
+def _derive_company_name(domain: str) -> str:
+    """Derive a human-readable company name from a clean domain.
+
+    'saint-gobain.com' → 'Saint-Gobain'
+    'acme.co.uk'       → 'Acme'
+    """
+    # Remove TLD(s): .com, .fr, .co.uk, etc.
+    name = domain.split('.')[0]
+    # Convert hyphens to spaces and title-case, then restore hyphens for names like Saint-Gobain
+    return '-'.join(w.capitalize() for w in name.split('-'))
+
+
 async def orchestrator_node(state: AuditState) -> dict:
     """Create audit report row and initialize state."""
     deal_id = state["deal_id"]
     stage_id = state["stage_id"]
-    company_name = state["company_name"]
-    domain = state["domain"]
+    raw_domain = state["domain"]
+
+    # Clean domain: strip ext., www., protocol, paths
+    domain = db.clean_domain(raw_domain)
+    if domain != raw_domain:
+        logger.info(f"Domain normalized: {raw_domain} → {domain}")
+
+    # Derive company name from domain (more reliable than deal title)
+    company_name = _derive_company_name(domain)
 
     logger.info(f"Starting audit for {company_name} ({domain}), deal={deal_id}, stage={stage_id}")
 
@@ -40,6 +59,8 @@ async def orchestrator_node(state: AuditState) -> dict:
 
     return {
         "audit_report_id": report_id,
+        "domain": domain,
+        "company_name": company_name,
         "country": country,
         "linkedin_available": False,
         "agent_reports": [],

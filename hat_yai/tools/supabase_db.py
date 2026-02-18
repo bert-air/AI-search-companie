@@ -23,20 +23,40 @@ def _get_client() -> Client:
     return create_client(settings.supabase_url, settings.supabase_anon_key)
 
 
-# --- enriched_companies (existing table, read + update growth) ---
+# --- Domain cleaning ---
 
-def _normalize_domain_pattern(domain: str) -> str:
-    """Build a LIKE pattern that matches domain regardless of protocol/www/path.
+# Subdomain prefixes that are not part of the real company domain
+_NOISE_SUBDOMAINS = re.compile(
+    r'^(ext|extranet|external|portal|mail|webmail|preprod|staging|app|cdn|api|login|sso)\.',
+    re.IGNORECASE,
+)
 
-    'saint-gobain.com' → '%saint-gobain.com%'
-    'http://www.saint-gobain.com' → '%saint-gobain.com%'
-    'https://www.saint-gobain.com/fr' → '%saint-gobain.com%'
+
+def clean_domain(domain: str) -> str:
+    """Strip protocol, www, noise subdomains, path and query params.
+
+    'ext.saint-gobain.com'              → 'saint-gobain.com'
+    'https://www.saint-gobain.com/fr'   → 'saint-gobain.com'
+    'portal.acme.co.uk'                 → 'acme.co.uk'
     """
     d = re.sub(r'^https?://', '', domain)
     d = re.sub(r'^www\.', '', d)
     d = d.split('/')[0]
     d = d.split('?')[0]
-    return f"%{d}%"
+    d = _NOISE_SUBDOMAINS.sub('', d)
+    return d
+
+
+# --- enriched_companies (existing table, read + update growth) ---
+
+def _normalize_domain_pattern(domain: str) -> str:
+    """Build a LIKE pattern that matches domain regardless of protocol/www/path/subdomains.
+
+    'saint-gobain.com' → '%saint-gobain.com%'
+    'ext.saint-gobain.com' → '%saint-gobain.com%'
+    'https://www.saint-gobain.com/fr' → '%saint-gobain.com%'
+    """
+    return f"%{clean_domain(domain)}%"
 
 
 def read_enriched_company(domain: str, company_name: str = "") -> Optional[dict]:
