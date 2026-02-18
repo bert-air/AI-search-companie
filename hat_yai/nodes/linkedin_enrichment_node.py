@@ -137,53 +137,82 @@ async def _step3_search_executives(
     Both passes use region filter. Results are merged and deduped, cap at 50.
     """
     # --- 3a: Seniority search (current + past) ---
+    # Cascade on both exceptions AND empty results (Evaboot returns [] on 429)
+    current, past = [], []
+
     try:
         current, past = await evaboot.search_executives(
             linkedin_company_id, company_name, region_id, region_name,
         )
-        logger.info("Step 3a: Evaboot seniority search succeeded")
+        if current or past:
+            logger.info(f"Step 3a: Evaboot seniority search: {len(current)} current, {len(past)} past")
+        else:
+            logger.warning("Step 3a: Evaboot returned empty results")
     except Exception as e:
-        logger.warning(f"Step 3a: Evaboot failed ({e}), trying Unipile")
+        logger.warning(f"Step 3a: Evaboot failed ({e})")
+
+    if not current and not past:
         try:
             current, past = await unipile.search_executives(
                 linkedin_company_id, company_name, region_id, region_name,
             )
-            logger.info("Step 3a: Unipile seniority search succeeded")
-        except Exception as e2:
-            logger.warning(f"Step 3a: Unipile failed ({e2}), falling back to Ghost Genius")
-            try:
-                current = await gg.search_executives_current(linkedin_company_id, locations=region_id)
-                past = await gg.search_executives_past(linkedin_company_id, locations=region_id)
-                logger.info("Step 3a: Ghost Genius fallback succeeded")
-            except Exception as e3:
-                logger.error(f"Step 3a: All 3 APIs failed ({e3}), no executives found")
-                current, past = [], []
+            if current or past:
+                logger.info(f"Step 3a: Unipile seniority search: {len(current)} current, {len(past)} past")
+            else:
+                logger.warning("Step 3a: Unipile returned empty results")
+        except Exception as e:
+            logger.warning(f"Step 3a: Unipile failed ({e})")
+
+    if not current and not past:
+        try:
+            current = await gg.search_executives_current(linkedin_company_id, locations=region_id)
+            past = await gg.search_executives_past(linkedin_company_id, locations=region_id)
+            if current or past:
+                logger.info(f"Step 3a: Ghost Genius fallback: {len(current)} current, {len(past)} past")
+            else:
+                logger.warning("Step 3a: Ghost Genius returned empty results")
+        except Exception as e:
+            logger.error(f"Step 3a: All 3 APIs failed ({e}), no executives found")
 
     # --- 3b: Keyword search (current only) ---
+    # Same cascade logic: try next API if results are empty
     keyword_results: list[dict] = []
+
     try:
         keyword_results = await evaboot.search_executives_by_keywords(
             linkedin_company_id, company_name, TITLE_SEARCH_KEYWORDS, region_id, region_name,
         )
-        logger.info(f"Step 3b: Evaboot keyword search found {len(keyword_results)} profiles")
+        if keyword_results:
+            logger.info(f"Step 3b: Evaboot keyword search found {len(keyword_results)} profiles")
+        else:
+            logger.warning("Step 3b: Evaboot keywords returned empty results")
     except Exception as e:
-        logger.warning(f"Step 3b: Evaboot keywords failed ({e}), trying Unipile")
+        logger.warning(f"Step 3b: Evaboot keywords failed ({e})")
+
+    if not keyword_results:
         try:
             keyword_results = await unipile.search_executives_by_keywords(
                 linkedin_company_id, company_name, TITLE_SEARCH_KEYWORDS, region_id, region_name,
             )
-            logger.info(f"Step 3b: Unipile keyword search found {len(keyword_results)} profiles")
-        except Exception as e2:
-            logger.warning(f"Step 3b: Unipile keywords failed ({e2}), falling back to Ghost Genius")
-            try:
-                keywords_str = " ".join(TITLE_SEARCH_KEYWORDS)
-                keyword_results = await gg.search_executives_by_keywords(
-                    linkedin_company_id, keywords=keywords_str, locations=region_id,
-                )
+            if keyword_results:
+                logger.info(f"Step 3b: Unipile keyword search found {len(keyword_results)} profiles")
+            else:
+                logger.warning("Step 3b: Unipile keywords returned empty results")
+        except Exception as e:
+            logger.warning(f"Step 3b: Unipile keywords failed ({e})")
+
+    if not keyword_results:
+        try:
+            keywords_str = " ".join(TITLE_SEARCH_KEYWORDS)
+            keyword_results = await gg.search_executives_by_keywords(
+                linkedin_company_id, keywords=keywords_str, locations=region_id,
+            )
+            if keyword_results:
                 logger.info(f"Step 3b: Ghost Genius keyword search found {len(keyword_results)} profiles")
-            except Exception as e3:
-                logger.error(f"Step 3b: All 3 APIs failed ({e3}), no keyword results")
-                keyword_results = []
+            else:
+                logger.warning("Step 3b: Ghost Genius keywords returned empty results")
+        except Exception as e:
+            logger.error(f"Step 3b: All 3 APIs failed ({e}), no keyword results")
 
     # --- Merge and deduplicate ---
     seen_ids: set[str] = set()
