@@ -96,9 +96,9 @@ async def reduce_node(state: AuditState) -> dict:
     # Model selection: Sonnet for <=4 lots, Opus for >4
     if total_lots > _LOTS_THRESHOLD_FOR_OPUS:
         logger.info(f"REDUCE: {total_lots} lots > {_LOTS_THRESHOLD_FOR_OPUS}, using Opus")
-        llm = get_llm(max_tokens=8192)
+        llm = get_llm(max_tokens=16384)
     else:
-        llm = get_fast_llm(max_tokens=8192)
+        llm = get_fast_llm(max_tokens=16384)
 
     structured_llm = llm.with_structured_output(ConsolidatedLinkedIn)
 
