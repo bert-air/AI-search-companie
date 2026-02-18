@@ -8,6 +8,7 @@ These models are used with `with_structured_output()` for validated LLM output.
 
 from __future__ import annotations
 
+import json as _json
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
@@ -85,6 +86,14 @@ class MapLotResult(BaseModel):
     posts_ignores_count: int = 0
     stack_detectee_lot: list[str] = Field(default_factory=list)
     mouvements_lot: list[MapMouvement] = Field(default_factory=list)
+
+    @field_validator("dirigeants", "posts_pertinents", "stack_detectee_lot", "mouvements_lot", mode="before")
+    @classmethod
+    def parse_json_string(cls, v):
+        """LLM sometimes returns list fields as JSON strings — parse them."""
+        if isinstance(v, str):
+            return _json.loads(v)
+        return v
 
 
 # --- REDUCE models (consolidated output) ---

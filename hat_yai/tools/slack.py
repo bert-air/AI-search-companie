@@ -27,7 +27,7 @@ async def send_slack_notification(
     score_intent: int = 0,
 ) -> bool:
     """Send a summary notification to Slack via webhook."""
-    deal_url = f"https://app.hubspot.com/contacts/undefined/deal/{deal_id}"
+    deal_url = f"https://app.hubspot.com/contacts/{settings.hubspot_portal_id}/record/0-3/{deal_id}/"
 
     emoji = {"GO": "🟢", "EXPLORE": "🟡", "PASS": "🔴"}.get(verdict, "⚪")
     status_text = "Audit terminé" if status == "completed" else f"Audit terminé ({status})"
