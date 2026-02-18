@@ -8,6 +8,26 @@
 - Merge to `main` only on explicit instruction ("merge sur main") — create a PR via `gh pr create` from `staging` → `main`
 - Run E2E tests from `staging` branch
 
+## LangSmith / LangGraph Platform
+
+- **Region EU** — toutes les API sont sur `eu.`:
+  - LangSmith API: `https://eu.api.smith.langchain.com`
+  - LangGraph Control Plane: `https://eu.api.host.langchain.com`
+  - Dashboard: `https://eu.smith.langchain.com`
+- Ne JAMAIS utiliser `api.smith.langchain.com` (US) — retourne 403
+- Org: **Airsaas**, Workspace: **Internal Tool**
+- API Key header: `X-API-Key` + `X-Tenant-Id` pour le workspace
+
+## Local development
+
+- **Toujours tester en local d'abord** avec `langgraph dev` avant tout deploiement cloud
+- Le deploiement cloud se fait uniquement quand l'utilisateur le demande explicitement
+- Config locale: `langgraph.json` + `.env`
+- Venv Python 3.11 requis (`.venv/`), le Python 3.14 systeme casse des wheels
+- Commande: `source .venv/bin/activate && langgraph dev --no-browser --port 8123 --allow-blocking`
+- `--allow-blocking` necessaire car supabase_db fait des appels sync dans des nodes async
+- API locale: `http://localhost:8123` — docs: `http://localhost:8123/docs`
+
 ## Agent Development Harness
 
 Philosophie : Harness Engineering — preparer le contexte, lancer les tests, lire les traces, iterer.
