@@ -28,6 +28,18 @@
 - `--allow-blocking` necessaire car supabase_db fait des appels sync dans des nodes async
 - API locale: `http://localhost:8123` — docs: `http://localhost:8123/docs`
 
+## Gestion des secrets
+
+- Les cles API sont stockees dans **LangSmith Workspace Secrets** (backup cloud)
+  - Endpoint: `POST/GET https://eu.api.smith.langchain.com/api/v1/workspaces/current/secrets`
+  - Headers: `X-API-Key` + `X-Tenant-Id: dcf94fc8-6f68-4630-b909-34eaef6b155e`
+- Si une cle dans `.env` est un placeholder (`...`, `gg_...`, `pat-...`, `lsv2-...`):
+  1. Chercher d'abord dans LangSmith secrets
+  2. Demander a l'utilisateur en dernier recours
+- `.env` est dans `.gitignore` — ne JAMAIS committer de vraies cles
+- `.env.example` contient les placeholders pour reference
+- GHOST_GENIUS_ACCOUNT_IDS provient de Supabase `workspace_team.ghost_genius_account_id` (status=active)
+
 ## Agent Development Harness
 
 Philosophie : Harness Engineering — preparer le contexte, lancer les tests, lire les traces, iterer.
