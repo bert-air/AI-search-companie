@@ -99,7 +99,7 @@ async def _process_batch(
 
     context = "\n".join(context_parts)
 
-    llm = get_fast_llm(max_tokens=8192)
+    llm = get_fast_llm(max_tokens=16384)
     structured_llm = llm.with_structured_output(MapLotResult)
 
     messages = [
@@ -129,6 +129,14 @@ async def map_node(state: AuditState) -> dict:
     # Pair posts to profiles
     profiles = _pair_posts_to_profiles(executives, posts)
 
+    # Log pairing results
+    posts_paired = sum(len(p.get("_posts", [])) for p in profiles)
+    profiles_with_posts = sum(1 for p in profiles if p.get("_posts"))
+    logger.info(
+        f"MAP: Paired {posts_paired}/{len(posts)} posts to "
+        f"{profiles_with_posts}/{len(profiles)} profiles"
+    )
+
     # Create batches
     batches = create_batches(profiles)
     total_lots = len(batches)
@@ -153,7 +161,14 @@ async def map_node(state: AuditState) -> dict:
             err_detail = str(result)[:500]
             logger.error(f"MAP: Lot {i + 1}/{total_lots} failed: {err_detail}")
         elif result is not None:
-            lot_results.append(result.model_dump())
+            dump = result.model_dump()
+            n_posts = len(dump.get("posts_pertinents") or [])
+            n_dirigeants = len(dump.get("dirigeants") or [])
+            logger.info(
+                f"MAP: Lot {i + 1}/{total_lots} OK — "
+                f"{n_dirigeants} dirigeants, {n_posts} posts"
+            )
+            lot_results.append(dump)
         else:
             logger.warning(f"MAP: Lot {i + 1}/{total_lots} returned None")
 
