@@ -9,6 +9,7 @@ These models are used with `with_structured_output()` for validated LLM output.
 from __future__ import annotations
 
 import json as _json
+import re as _re
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
@@ -92,7 +93,12 @@ class MapLotResult(BaseModel):
     def parse_json_string(cls, v):
         """LLM sometimes returns list fields as JSON strings — parse them."""
         if isinstance(v, str):
-            return _json.loads(v)
+            try:
+                return _json.loads(v)
+            except _json.JSONDecodeError:
+                # Fix invalid backslash escapes from LLM (e.g. \s, \e, \a)
+                fixed = _re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', v)
+                return _json.loads(fixed)
         return v
 
 
