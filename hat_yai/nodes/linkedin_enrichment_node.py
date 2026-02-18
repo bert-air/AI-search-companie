@@ -18,6 +18,7 @@ from hat_yai.state import AuditState
 from hat_yai.tools import ghost_genius as gg
 from hat_yai.tools import evaboot
 from hat_yai.tools import supabase_db as db
+from hat_yai.tools import unipile
 from hat_yai.tools.firecrawl import scrape_page
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,13 @@ async def _step1_resolve_company(
     return None, None
 
 
+def _is_growth_useful(growth: Optional[dict]) -> bool:
+    """Check if growth data has actual values (not just null placeholders)."""
+    if not growth or not isinstance(growth, dict):
+        return False
+    return growth.get("growth_1_year") is not None
+
+
 def _step2_employees_growth(
     domain: str,
     company_name: str = "",
@@ -97,13 +105,14 @@ def _step2_employees_growth(
     """Step 2: Check growth cache in enriched_companies.
 
     Returns cached growth data from employees_growth JSONB column, else None.
+    Rejects 'zombie' cache entries where all values are null.
     """
     company = db.read_enriched_company(domain, company_name)
     if not company:
         return None
 
     growth = company.get("employees_growth")
-    if growth and isinstance(growth, dict):
+    if growth and isinstance(growth, dict) and _is_growth_useful(growth):
         logger.info("Step 2: Using cached growth data from enriched_companies")
         return growth
     return None
@@ -392,16 +401,30 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
             "linkedin_company_url": linkedin_company_url,
         })
 
-        # Step 2: Employees Growth
+        # Step 2: Employees Growth (Unipile primary, Ghost Genius backup)
         growth = _step2_employees_growth(domain, company_name)
         if growth is None:
+            # Cache miss — try Unipile first (primary)
             try:
-                growth = await gg.get_employees_growth(linkedin_company_url)
-                # Cache in enriched_companies
-                db.update_enriched_companies_growth(domain, growth, company_name)
+                growth = await unipile.get_employees_growth(linkedin_company_url)
             except Exception as e:
-                logger.warning(f"Step 2 failed: {e}")
+                logger.warning(f"Step 2: Unipile failed: {e}")
                 growth = {}
+
+            # Fallback to Ghost Genius if Unipile returned empty
+            if not _is_growth_useful(growth):
+                logger.info("Step 2: Unipile empty, trying Ghost Genius fallback")
+                try:
+                    gg_growth = await gg.get_employees_growth(linkedin_company_url)
+                    if _is_growth_useful(gg_growth):
+                        growth = gg_growth
+                        logger.info("Step 2: Ghost Genius fallback succeeded")
+                except Exception as e:
+                    logger.warning(f"Step 2: Ghost Genius fallback also failed: {e}")
+
+            # Cache only if useful (avoid zombie cache)
+            if _is_growth_useful(growth):
+                db.update_enriched_companies_growth(domain, growth, company_name)
 
         # Step 3: Search executives (seniority + keyword, with region filter)
         executives = await _step3_search_executives(
