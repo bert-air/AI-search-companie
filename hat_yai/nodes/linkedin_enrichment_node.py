@@ -292,11 +292,17 @@ async def _step4_enrich_profiles(
                 })
             logger.debug(f"Step 4: Cached enrichment for {exec_data.get('full_name')}")
         else:
-            # Call enrich edge function, wait 2s, re-read
-            success = await db.call_enrich_function(url)
-            await asyncio.sleep(2)
+            # Call enrich edge function, retry with progressive backoff
+            _ENRICH_DELAYS = [3, 6, 10]
+            await db.call_enrich_function(url)
 
-            contact = db.read_enriched_contact(url)
+            contact = None
+            for delay in _ENRICH_DELAYS:
+                await asyncio.sleep(delay)
+                contact = db.read_enriched_contact(url)
+                if contact:
+                    break
+
             if contact:
                 _copy_contact_fields(exec_data, contact)
                 if db_id:
@@ -308,7 +314,7 @@ async def _step4_enrich_profiles(
             else:
                 if db_id:
                     db.update_audit_executive(db_id, {"enrichment_status": "failed"})
-                logger.warning(f"Step 4: Enrichment failed for {exec_data.get('full_name')}")
+                logger.warning(f"Step 4: Enrichment failed for {exec_data.get('full_name')} after {len(_ENRICH_DELAYS)} retries")
 
         enriched.append(exec_data)
 
@@ -369,11 +375,17 @@ async def _step5_linkedin_posts(
             page1 = await gg.get_profile_posts(url, page=1)
             posts = page1.get("data", [])
 
-            # Page 2 if pagination token exists
+            # Pages 2-3 if pagination tokens exist
             token = page1.get("pagination_token")
             if token:
                 page2 = await gg.get_profile_posts(url, page=2, pagination_token=token)
                 posts.extend(page2.get("data", []))
+
+                # Page 3
+                token2 = page2.get("pagination_token")
+                if token2:
+                    page3 = await gg.get_profile_posts(url, page=3, pagination_token=token2)
+                    posts.extend(page3.get("data", []))
 
             # Attach author info and insert into Supabase
             for post in posts:

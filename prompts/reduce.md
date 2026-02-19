@@ -44,7 +44,7 @@ En te basant UNIQUEMENT sur les données LinkedIn consolidées, pré-évalue ces
 | signal_id | Règle de détection |
 |---|---|
 | nouveau_pdg_dg | Un dirigeant CEO/DG/PDG avec anciennete_mois < 12 |
-| nouveau_dsi_dir_transfo | Un dirigeant DSI/CIO/CDO/Dir Transfo avec anciennete_mois < 12 |
+| nouveau_dsi_dir_transfo | Un dirigeant DSI/CIO/CTO/CDO/Dir Transfo/Chief Digital avec anciennete_mois < 12 |
 | posts_linkedin_transfo | ≥2 posts de dirigeants C-level avec topic transformation_digitale dans les 6 derniers mois |
 | direction_transfo_existe | Un dirigeant avec titre contenant "Transformation" ou "Digital" (hors DSI pur) identifié |
 | pmo_identifie | Un PMO IT/Digital identifié. Chercher dans TOUS les champs du profil : current_title, about, headline_keywords, skills_cles. Mots-clés : "PMO", "Bureau de projets", "Project Management Office", "IT Portfolio Management", "Project Portfolio Management". VALIDATION : vérifier que le contexte indique un PMO IT (gestion de portefeuille de projets IT/SI, rattachement DSI/CIO) et non un chef de projet isolé ou un PMO métier (construction, etc.) |

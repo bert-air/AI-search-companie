@@ -71,3 +71,44 @@ Philosophie : Harness Engineering — preparer le contexte, lancer les tests, li
 
 - **LangSmith** = comportement agent (traces)
 - **Supabase** = donnees (logs, tables)
+
+### Checklist post-audit (obligatoire apres chaque run)
+
+Apres chaque audit termine, analyser systematiquement **les traces LangSmith ET les donnees Supabase**, puis poster le resume dans le chat.
+
+#### A. Traces LangSmith (comportement agents)
+
+Ouvrir la trace du run dans le dashboard EU (`https://eu.smith.langchain.com`) :
+
+1. **Duree totale** — comparer avec les runs precedents, identifier les etapes lentes
+2. **Parcours du graph** — verifier que tous les noeuds attendus ont ete executes (orchestrator → linkedin_enrichment → MAP agents → reduce → scoring → synthesizer)
+3. **Agents MAP** — pour chaque agent (entreprise, finance, dynamique, comex_org, comex_profils, connexions) :
+   - Nombre de tool calls (search_web, scrape_page) vs limites du prompt
+   - Erreurs ou retries
+   - Taille du contexte injecte (tokens)
+   - Qualite du structured output (AgentReport parse correctement ?)
+4. **Enrichissement LinkedIn** — Steps 3a/3b/4/5 : quelle API a repondu (Evaboot/Unipile/GG), combien de resultats, timeouts
+5. **Scoring** — verifier que les signaux des agents arrivent bien au scoring node
+6. **Synthesizer** — slack_recap genere ? Taille ? Erreur de parsing ?
+
+#### B. Donnees Supabase (resultats persistes)
+
+Requeter `ai_agent_company_audit_reports` + `_executives` + `_linkedin_posts` :
+
+1. **Metadata** — score, verdict, duree, data_quality_score
+2. **Executives** — total, current/past split, enrichment_status breakdown (cached/enriched/failed), connected_with coverage (% avec donnees)
+3. **Posts** — total, auteurs uniques, distribution par auteur (cap atteint ?), date range couvert
+4. **Agent reports** — pour chaque agent : data_quality (sources_count, confidence_overall, linkedin_available), nombre de facts, nombre de signals
+5. **Scoring signals** — DETECTED/NOT_DETECTED/UNKNOWN counts, points bruts vs ponderes, coherence avec les reports agents
+
+#### C. Anomalies a flagger (priorite haute → basse)
+
+- Enrichments failed sur des profils C-level (CTO, DSI, CDO)
+- Agent avec 0 facts ou 0 sources (= n'a rien trouve)
+- Signal avec signal_id malformeou inconnu du SCORING_GRILLE
+- Template variables non resolues dans evidence (`{{...}}`)
+- connected_with = 0 → agent Connexions aveugle (4 UNKNOWN)
+- confidence "low" sur un agent critique (comex_org, comex_profils)
+- Slack recap vide ou tronque
+- Duree > 30 min (identifier le bottleneck)
+- Posts cap atteint sur tous les auteurs (= on manque potentiellement du contenu)

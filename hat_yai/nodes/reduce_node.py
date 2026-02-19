@@ -280,6 +280,42 @@ async def reduce_node(state: AuditState) -> dict:
                     )
                     break
 
+    # 6b. nouveau_dsi_dir_transfo fallback: scan for recent IT/Digital leader
+    dsi_detected_by_llm = any(
+        s.get("signal_id") == "nouveau_dsi_dir_transfo" and s.get("probable")
+        for s in llm_signals
+    )
+    if not dsi_detected_by_llm:
+        _DSI_KEYWORDS = {
+            "dsi", "cio", "cto", "cdo", "chief information",
+            "chief technology", "chief digital", "chief data",
+            "directeur des systèmes", "directeur digital",
+            "directeur de la transformation", "dir transfo",
+            "vp it", "svp it", "group digital", "group it",
+        }
+        for d in all_dirigeants:
+            if (d.get("is_c_level")
+                    and d.get("is_current_employee", True)
+                    and (d.get("anciennete_mois") or 999) < 12):
+                title_lower = (d.get("current_title") or "").lower()
+                if any(kw in title_lower for kw in _DSI_KEYWORDS):
+                    llm_signals.append({
+                        "signal_id": "nouveau_dsi_dir_transfo",
+                        "probable": True,
+                        "evidence": (
+                            f"{d.get('name')} — {d.get('current_title')} "
+                            f"(ancienneté {d.get('anciennete_mois')} mois)"
+                        ),
+                        "source": d.get("name", ""),
+                    })
+                    consolidated["signaux_pre_detectes"] = llm_signals
+                    logger.info(
+                        f"REDUCE: nouveau_dsi_dir_transfo detected "
+                        f"(Python-fallback) from {d.get('name')} "
+                        f"({d.get('anciennete_mois')} months)"
+                    )
+                    break
+
     # 7. Turnover COMEX: detect ≥3 C-level departures in 18 months
     today = date.today()
     cutoff_month = today.month - 18
