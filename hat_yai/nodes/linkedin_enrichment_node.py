@@ -17,9 +17,10 @@ from hat_yai.config import LINKEDIN_REGION_IDS, TITLE_SEARCH_KEYWORDS, IT_LEADER
 from hat_yai.state import AuditState
 from hat_yai.tools import ghost_genius as gg
 from hat_yai.tools import evaboot
+from hat_yai.tools import enrich_crm
 from hat_yai.tools import supabase_db as db
 from hat_yai.tools import unipile
-from hat_yai.tools.firecrawl import scrape_page
+from hat_yai.tools.firecrawl import scrape_page, scrape_with_links
 
 logger = logging.getLogger(__name__)
 
@@ -30,61 +31,71 @@ def _extract_linkedin_url_from_html(html: str) -> Optional[str]:
     return match.group(0) if match else None
 
 
+def _extract_linkedin_company_id(url: str) -> Optional[str]:
+    """Extract numeric company ID from a LinkedIn URL."""
+    match = re.search(r"linkedin\.com/company/(\d+)", url)
+    return match.group(1) if match else None
+
+
 async def _step1_resolve_company(
     domain: str,
     company_name: str,
     audit_report_id: str,
 ) -> tuple[Optional[str], Optional[str]]:
-    """Step 1: Domain → LinkedIn Company ID (4-level fallback).
+    """Step 1: Domain → LinkedIn Company ID (3-level fallback).
 
     Returns (linkedin_company_id, linkedin_company_url) or (None, None).
     """
-    # 1. Check Supabase cache
+    # 1. Check Supabase cache (by domain, fallback by name)
     company = db.read_enriched_company(domain, company_name)
     if company and company.get("linkedin_private_url"):
         url = company["linkedin_private_url"]
-        cid = gg.extract_linkedin_company_id(url)
+        cid = _extract_linkedin_company_id(url)
         if cid:
             logger.info(f"Step 1: Found company ID {cid} from Supabase cache")
             return cid, url
+        # URL has slug instead of numeric ID — resolve via Unipile
+        cid, resolved_url = await unipile.resolve_company_by_url(url)
+        if cid:
+            logger.info(f"Step 1: Resolved slug from Supabase cache via Unipile, ID {cid}")
+            return cid, resolved_url
 
-    # 2. Scrape homepage for LinkedIn URL
+    # 2. Enrich-CRM: domain → LinkedIn URL + ID (1 credit, fast, no scraping)
+    li_url, li_id = enrich_crm.resolve_company_linkedin(domain)
+    if li_url:
+        # Enrich-CRM returns a numeric ID directly — use it if available
+        if li_id:
+            logger.info(f"Step 1: Found company ID {li_id} from Enrich-CRM")
+            return li_id, li_url
+        # Fallback: resolve the URL via Unipile to get numeric ID
+        cid, resolved_url = await unipile.resolve_company_by_url(li_url)
+        if cid:
+            logger.info(f"Step 1: Found company ID {cid} from Enrich-CRM + Unipile")
+            return cid, resolved_url
+
+    # 3. Scrape homepage for LinkedIn URL (markdown + links), resolve via Unipile
     try:
-        homepage_content = scrape_page.invoke(f"https://{domain}")
+        homepage_content, page_links = scrape_with_links(f"https://{domain}")
+
+        # Search markdown content first
         li_url = _extract_linkedin_url_from_html(homepage_content)
+
+        # If not in markdown, search in page links (captures footer/sidebar)
+        if not li_url:
+            for link in page_links:
+                found = _extract_linkedin_url_from_html(link)
+                if found:
+                    li_url = found
+                    logger.info(f"Step 1: Found LinkedIn URL in page links (footer): {li_url}")
+                    break
+
         if li_url:
-            # Confirm via GG API
-            gg_company = await gg.get_company_by_url(li_url)
-            cid = str(gg_company.get("id", ""))
-            full_url = gg_company.get("url", li_url)
+            cid, resolved_url = await unipile.resolve_company_by_url(li_url)
             if cid:
-                logger.info(f"Step 1: Found company ID {cid} from homepage scrape")
-                return cid, full_url
+                logger.info(f"Step 1: Found company ID {cid} from homepage scrape + Unipile")
+                return cid, resolved_url
     except Exception as e:
         logger.warning(f"Step 1: Homepage scrape failed: {e}")
-
-    # 3. GG search by company name
-    try:
-        results = await gg.search_companies(company_name)
-        if results:
-            # Take first result whose name roughly matches
-            for r in results:
-                name = r.get("name", "").lower()
-                if company_name.lower() in name or name in company_name.lower():
-                    cid = str(r.get("id", ""))
-                    url = r.get("url", "")
-                    if cid:
-                        logger.info(f"Step 1: Found company ID {cid} from GG search")
-                        return cid, url
-            # Fallback: take first result
-            first = results[0]
-            cid = str(first.get("id", ""))
-            url = first.get("url", "")
-            if cid:
-                logger.info(f"Step 1: Using first GG search result, ID {cid}")
-                return cid, url
-    except Exception as e:
-        logger.warning(f"Step 1: GG search failed: {e}")
 
     # 4. Nothing found
     logger.warning(f"Step 1: Could not resolve LinkedIn company ID for {domain}")
@@ -476,9 +487,7 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
         pre_set_url = state.get("linkedin_company_url")
         if pre_set_url:
             logger.info(f"Step 1: Using pre-set LinkedIn URL: {pre_set_url}")
-            gg_company = await gg.get_company_by_url(pre_set_url)
-            linkedin_company_id = str(gg_company.get("id", ""))
-            linkedin_company_url = gg_company.get("url", pre_set_url)
+            linkedin_company_id, linkedin_company_url = await unipile.resolve_company_by_url(pre_set_url)
         else:
             linkedin_company_id, linkedin_company_url = await _step1_resolve_company(
                 domain, company_name, audit_id

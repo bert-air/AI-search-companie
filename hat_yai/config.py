@@ -40,6 +40,9 @@ class Settings:
     unipile_api_key: str = ""
     unipile_base_url: str = "https://api25.unipile.com:15595/api/v1"
 
+    # Enrich-CRM
+    enrich_crm_api_key: str = ""
+
 
 def load_settings() -> Settings:
     account_ids_raw = os.getenv("GHOST_GENIUS_ACCOUNT_IDS", "")
@@ -60,6 +63,7 @@ def load_settings() -> Settings:
         slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL", ""),
         unipile_api_key=os.getenv("UNIPILE_API_KEY", ""),
         unipile_base_url=os.getenv("UNIPILE_BASE_URL", "https://api25.unipile.com:15595/api/v1"),
+        enrich_crm_api_key=os.getenv("ENRICH_CRM_API_KEY", ""),
     )
 
 
