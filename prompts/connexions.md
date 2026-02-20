@@ -13,7 +13,8 @@ Chaque dirigeant a :
 - entreprises_precedentes : [{nom, poste, duree_mois}]
 
 ### Équipe commerciale
-{{sales_list}}
+
+Voir les données JSON de l'équipe commerciale dans le contexte fourni ci-dessous.
 
 Chaque sales a : name, linkedin_slug, role, entreprises_precedentes (si disponible), ecole (si disponible).
 

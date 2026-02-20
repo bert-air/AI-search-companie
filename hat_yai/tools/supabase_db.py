@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -25,26 +26,38 @@ def _get_client() -> Client:
 
 # --- Domain cleaning ---
 
-# Subdomain prefixes that are not part of the real company domain
-_NOISE_SUBDOMAINS = re.compile(
-    r'^(ext|extranet|external|portal|mail|webmail|preprod|staging|app|cdn|api|login|sso)\.',
-    re.IGNORECASE,
-)
+# TLD segments that indicate a multi-part TLD (e.g. .co.uk, .com.br, .sante.fr)
+_MULTI_PART_TLDS = {"co", "com", "net", "org", "ac", "gov", "gouv", "sante", "asso"}
 
 
 def clean_domain(domain: str) -> str:
-    """Strip protocol, www, noise subdomains, path and query params.
+    """Extract the registered domain from a URL or email domain.
+
+    Strips protocol, www, paths, and any subdomain noise by keeping only
+    the registered domain (last 2 segments, or 3 for multi-part TLDs).
 
     'ext.saint-gobain.com'              → 'saint-gobain.com'
     'https://www.saint-gobain.com/fr'   → 'saint-gobain.com'
+    'eps.caisse-epargne.fr'             → 'caisse-epargne.fr'
+    'externe.systeme-u.fr'              → 'systeme-u.fr'
     'portal.acme.co.uk'                 → 'acme.co.uk'
+    'guillaume.belleil@efs.sante.fr'    → 'efs.sante.fr'  (after @ extraction)
+    'saint-gobain.com'                  → 'saint-gobain.com'
     """
     d = re.sub(r'^https?://', '', domain)
     d = re.sub(r'^www\.', '', d)
     d = d.split('/')[0]
     d = d.split('?')[0]
-    d = _NOISE_SUBDOMAINS.sub('', d)
-    return d
+
+    parts = d.split('.')
+    if len(parts) <= 2:
+        return d
+
+    # Multi-part TLD: if second-to-last segment is in known set, keep 3
+    if len(parts) >= 3 and parts[-2].lower() in _MULTI_PART_TLDS:
+        return '.'.join(parts[-3:])
+
+    return '.'.join(parts[-2:])
 
 
 # --- enriched_companies (existing table, read + update growth) ---
@@ -59,16 +72,40 @@ def _normalize_domain_pattern(domain: str) -> str:
     return f"%{clean_domain(domain)}%"
 
 
+def _strip_accents(text: str) -> str:
+    """Remove accents/diacritics from text for fuzzy matching.
+
+    'Système' → 'Systeme', 'Caisse d\\'Épargne' → 'Caisse d\\'Epargne'
+    """
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
+
 def read_enriched_company(domain: str, company_name: str = "") -> Optional[dict]:
-    """SELECT from enriched_companies by domain, falling back to name."""
+    """SELECT from enriched_companies by domain, falling back to name.
+
+    Name search uses accent-normalized partial matching to handle
+    formatting differences (e.g. 'Systeme U' matches 'Système U').
+    """
     client = _get_client()
     pattern = _normalize_domain_pattern(domain)
     result = client.table("enriched_companies").select("*").ilike("domain", pattern).limit(1).execute()
     if result.data:
         return result.data[0]
-    # Fallback: search by company name (exact case-insensitive match)
+    # Fallback: search by company name (partial, case-insensitive)
     if company_name:
+        # Try exact match first (fastest)
         result = client.table("enriched_companies").select("*").ilike("name", company_name).limit(1).execute()
+        if result.data:
+            return result.data[0]
+        # Try partial match with accent-stripped name
+        stripped = _strip_accents(company_name)
+        if stripped != company_name:
+            result = client.table("enriched_companies").select("*").ilike("name", stripped).limit(1).execute()
+            if result.data:
+                return result.data[0]
+        # Try partial match (%name%)
+        result = client.table("enriched_companies").select("*").ilike("name", f"%{company_name}%").limit(1).execute()
         if result.data:
             return result.data[0]
     return None

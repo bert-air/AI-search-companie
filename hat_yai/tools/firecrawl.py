@@ -43,3 +43,21 @@ def scrape_page(url: str) -> str:
     if len(text) > _SCRAPE_MAX_CHARS:
         text = text[:_SCRAPE_MAX_CHARS] + "\n\n[… contenu tronqué]"
     return text
+
+
+def scrape_with_links(url: str) -> tuple[str, list[str]]:
+    """Scrape a web page returning both markdown text and all page links.
+
+    The "links" format captures footer/sidebar links that onlyMainContent misses,
+    which is critical for finding LinkedIn URLs in site footers.
+
+    Returns:
+        (markdown_text, links_list) — markdown truncated to _SCRAPE_MAX_CHARS.
+    """
+    app = _get_app()
+    result = app.scrape(url, formats=["markdown", "links"])
+    text = result.markdown or ""
+    if len(text) > _SCRAPE_MAX_CHARS:
+        text = text[:_SCRAPE_MAX_CHARS] + "\n\n[… contenu tronqué]"
+    links = result.links or []
+    return text, links

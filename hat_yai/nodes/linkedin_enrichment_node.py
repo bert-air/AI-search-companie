@@ -13,13 +13,14 @@ import logging
 import re
 from typing import Optional
 
-from hat_yai.config import LINKEDIN_REGION_IDS, TITLE_SEARCH_KEYWORDS
+from hat_yai.config import LINKEDIN_REGION_IDS, TITLE_SEARCH_KEYWORDS, IT_LEADERSHIP_KEYWORDS
 from hat_yai.state import AuditState
 from hat_yai.tools import ghost_genius as gg
 from hat_yai.tools import evaboot
+from hat_yai.tools import enrich_crm
 from hat_yai.tools import supabase_db as db
 from hat_yai.tools import unipile
-from hat_yai.tools.firecrawl import scrape_page
+from hat_yai.tools.firecrawl import scrape_page, scrape_with_links
 
 logger = logging.getLogger(__name__)
 
@@ -30,61 +31,71 @@ def _extract_linkedin_url_from_html(html: str) -> Optional[str]:
     return match.group(0) if match else None
 
 
+def _extract_linkedin_company_id(url: str) -> Optional[str]:
+    """Extract numeric company ID from a LinkedIn URL."""
+    match = re.search(r"linkedin\.com/company/(\d+)", url)
+    return match.group(1) if match else None
+
+
 async def _step1_resolve_company(
     domain: str,
     company_name: str,
     audit_report_id: str,
 ) -> tuple[Optional[str], Optional[str]]:
-    """Step 1: Domain → LinkedIn Company ID (4-level fallback).
+    """Step 1: Domain → LinkedIn Company ID (3-level fallback).
 
     Returns (linkedin_company_id, linkedin_company_url) or (None, None).
     """
-    # 1. Check Supabase cache
+    # 1. Check Supabase cache (by domain, fallback by name)
     company = db.read_enriched_company(domain, company_name)
     if company and company.get("linkedin_private_url"):
         url = company["linkedin_private_url"]
-        cid = gg.extract_linkedin_company_id(url)
+        cid = _extract_linkedin_company_id(url)
         if cid:
             logger.info(f"Step 1: Found company ID {cid} from Supabase cache")
             return cid, url
+        # URL has slug instead of numeric ID — resolve via Unipile
+        cid, resolved_url = await unipile.resolve_company_by_url(url)
+        if cid:
+            logger.info(f"Step 1: Resolved slug from Supabase cache via Unipile, ID {cid}")
+            return cid, resolved_url
 
-    # 2. Scrape homepage for LinkedIn URL
+    # 2. Enrich-CRM: domain → LinkedIn URL + ID (1 credit, fast, no scraping)
+    li_url, li_id = enrich_crm.resolve_company_linkedin(domain)
+    if li_url:
+        # Enrich-CRM returns a numeric ID directly — use it if available
+        if li_id:
+            logger.info(f"Step 1: Found company ID {li_id} from Enrich-CRM")
+            return li_id, li_url
+        # Fallback: resolve the URL via Unipile to get numeric ID
+        cid, resolved_url = await unipile.resolve_company_by_url(li_url)
+        if cid:
+            logger.info(f"Step 1: Found company ID {cid} from Enrich-CRM + Unipile")
+            return cid, resolved_url
+
+    # 3. Scrape homepage for LinkedIn URL (markdown + links), resolve via Unipile
     try:
-        homepage_content = scrape_page.invoke(f"https://{domain}")
+        homepage_content, page_links = scrape_with_links(f"https://{domain}")
+
+        # Search markdown content first
         li_url = _extract_linkedin_url_from_html(homepage_content)
+
+        # If not in markdown, search in page links (captures footer/sidebar)
+        if not li_url:
+            for link in page_links:
+                found = _extract_linkedin_url_from_html(link)
+                if found:
+                    li_url = found
+                    logger.info(f"Step 1: Found LinkedIn URL in page links (footer): {li_url}")
+                    break
+
         if li_url:
-            # Confirm via GG API
-            gg_company = await gg.get_company_by_url(li_url)
-            cid = str(gg_company.get("id", ""))
-            full_url = gg_company.get("url", li_url)
+            cid, resolved_url = await unipile.resolve_company_by_url(li_url)
             if cid:
-                logger.info(f"Step 1: Found company ID {cid} from homepage scrape")
-                return cid, full_url
+                logger.info(f"Step 1: Found company ID {cid} from homepage scrape + Unipile")
+                return cid, resolved_url
     except Exception as e:
         logger.warning(f"Step 1: Homepage scrape failed: {e}")
-
-    # 3. GG search by company name
-    try:
-        results = await gg.search_companies(company_name)
-        if results:
-            # Take first result whose name roughly matches
-            for r in results:
-                name = r.get("name", "").lower()
-                if company_name.lower() in name or name in company_name.lower():
-                    cid = str(r.get("id", ""))
-                    url = r.get("url", "")
-                    if cid:
-                        logger.info(f"Step 1: Found company ID {cid} from GG search")
-                        return cid, url
-            # Fallback: take first result
-            first = results[0]
-            cid = str(first.get("id", ""))
-            url = first.get("url", "")
-            if cid:
-                logger.info(f"Step 1: Using first GG search result, ID {cid}")
-                return cid, url
-    except Exception as e:
-        logger.warning(f"Step 1: GG search failed: {e}")
 
     # 4. Nothing found
     logger.warning(f"Step 1: Could not resolve LinkedIn company ID for {domain}")
@@ -214,6 +225,45 @@ async def _step3_search_executives(
         except Exception as e:
             logger.error(f"Step 3b: All 3 APIs failed ({e}), no keyword results")
 
+    # --- Step 3c: IT leadership keyword search ---
+    it_keyword_results: list[dict] = []
+
+    try:
+        it_keyword_results = await evaboot.search_executives_by_keywords(
+            linkedin_company_id, company_name, IT_LEADERSHIP_KEYWORDS, region_id, region_name,
+        )
+        if it_keyword_results:
+            logger.info(f"Step 3c: Evaboot IT leadership found {len(it_keyword_results)} profiles")
+        else:
+            logger.warning("Step 3c: Evaboot IT leadership returned empty results")
+    except Exception as e:
+        logger.warning(f"Step 3c: Evaboot IT leadership failed ({e})")
+
+    if not it_keyword_results:
+        try:
+            it_keyword_results = await unipile.search_executives_by_keywords(
+                linkedin_company_id, company_name, IT_LEADERSHIP_KEYWORDS, region_id, region_name,
+            )
+            if it_keyword_results:
+                logger.info(f"Step 3c: Unipile IT leadership found {len(it_keyword_results)} profiles")
+            else:
+                logger.warning("Step 3c: Unipile IT leadership returned empty results")
+        except Exception as e:
+            logger.warning(f"Step 3c: Unipile IT leadership failed ({e})")
+
+    if not it_keyword_results:
+        try:
+            it_kw_str = " ".join(IT_LEADERSHIP_KEYWORDS)
+            it_keyword_results = await gg.search_executives_by_keywords(
+                linkedin_company_id, keywords=it_kw_str, locations=region_id,
+            )
+            if it_keyword_results:
+                logger.info(f"Step 3c: Ghost Genius IT leadership found {len(it_keyword_results)} profiles")
+            else:
+                logger.warning("Step 3c: Ghost Genius IT leadership returned empty results")
+        except Exception as e:
+            logger.error(f"Step 3c: All 3 APIs failed ({e}), no IT leadership results")
+
     # --- Merge and deduplicate ---
     seen_ids: set[str] = set()
     current_deduped: list[dict] = []
@@ -229,6 +279,14 @@ async def _step3_search_executives(
 
     # Keyword results (current employees, may overlap with seniority)
     for exec_data in keyword_results:
+        eid = exec_data.get("id", "")
+        if eid and eid not in seen_ids:
+            seen_ids.add(eid)
+            exec_data["is_current_employee"] = True
+            current_deduped.append(exec_data)
+
+    # IT leadership results (current employees, may overlap with seniority/keyword)
+    for exec_data in it_keyword_results:
         eid = exec_data.get("id", "")
         if eid and eid not in seen_ids:
             seen_ids.add(eid)
@@ -292,11 +350,17 @@ async def _step4_enrich_profiles(
                 })
             logger.debug(f"Step 4: Cached enrichment for {exec_data.get('full_name')}")
         else:
-            # Call enrich edge function, wait 2s, re-read
-            success = await db.call_enrich_function(url)
-            await asyncio.sleep(2)
+            # Call enrich edge function, retry with progressive backoff
+            _ENRICH_DELAYS = [3, 6, 10]
+            await db.call_enrich_function(url)
 
-            contact = db.read_enriched_contact(url)
+            contact = None
+            for delay in _ENRICH_DELAYS:
+                await asyncio.sleep(delay)
+                contact = db.read_enriched_contact(url)
+                if contact:
+                    break
+
             if contact:
                 _copy_contact_fields(exec_data, contact)
                 if db_id:
@@ -308,7 +372,7 @@ async def _step4_enrich_profiles(
             else:
                 if db_id:
                     db.update_audit_executive(db_id, {"enrichment_status": "failed"})
-                logger.warning(f"Step 4: Enrichment failed for {exec_data.get('full_name')}")
+                logger.warning(f"Step 4: Enrichment failed for {exec_data.get('full_name')} after {len(_ENRICH_DELAYS)} retries")
 
         enriched.append(exec_data)
 
@@ -369,11 +433,17 @@ async def _step5_linkedin_posts(
             page1 = await gg.get_profile_posts(url, page=1)
             posts = page1.get("data", [])
 
-            # Page 2 if pagination token exists
+            # Pages 2-3 if pagination tokens exist
             token = page1.get("pagination_token")
             if token:
                 page2 = await gg.get_profile_posts(url, page=2, pagination_token=token)
                 posts.extend(page2.get("data", []))
+
+                # Page 3
+                token2 = page2.get("pagination_token")
+                if token2:
+                    page3 = await gg.get_profile_posts(url, page=3, pagination_token=token2)
+                    posts.extend(page3.get("data", []))
 
             # Attach author info and insert into Supabase
             for post in posts:
@@ -417,9 +487,7 @@ async def linkedin_enrichment_node(state: AuditState) -> dict:
         pre_set_url = state.get("linkedin_company_url")
         if pre_set_url:
             logger.info(f"Step 1: Using pre-set LinkedIn URL: {pre_set_url}")
-            gg_company = await gg.get_company_by_url(pre_set_url)
-            linkedin_company_id = str(gg_company.get("id", ""))
-            linkedin_company_url = gg_company.get("url", pre_set_url)
+            linkedin_company_id, linkedin_company_url = await unipile.resolve_company_by_url(pre_set_url)
         else:
             linkedin_company_id, linkedin_company_url = await _step1_resolve_company(
                 domain, company_name, audit_id

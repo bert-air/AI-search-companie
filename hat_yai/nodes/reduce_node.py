@@ -280,8 +280,125 @@ async def reduce_node(state: AuditState) -> dict:
                     )
                     break
 
-    # 7. Turnover COMEX: detect ≥3 C-level departures in 18 months
+    # 6b. nouveau_dsi_dir_transfo fallback: scan for recent IT/Digital leader
+    dsi_detected_by_llm = any(
+        s.get("signal_id") == "nouveau_dsi_dir_transfo" and s.get("probable")
+        for s in llm_signals
+    )
+    if not dsi_detected_by_llm:
+        _DSI_KEYWORDS = {
+            "dsi", "cio", "cto", "cdo", "chief information",
+            "chief technology", "chief digital", "chief data",
+            "directeur des systèmes", "directeur digital",
+            "directeur de la transformation", "dir transfo",
+            "vp it", "svp it", "group digital", "group it",
+        }
+        for d in all_dirigeants:
+            if (d.get("is_c_level")
+                    and d.get("is_current_employee", True)
+                    and (d.get("anciennete_mois") or 999) < 12):
+                title_lower = (d.get("current_title") or "").lower()
+                if any(kw in title_lower for kw in _DSI_KEYWORDS):
+                    llm_signals.append({
+                        "signal_id": "nouveau_dsi_dir_transfo",
+                        "probable": True,
+                        "evidence": (
+                            f"{d.get('name')} — {d.get('current_title')} "
+                            f"(ancienneté {d.get('anciennete_mois')} mois)"
+                        ),
+                        "source": d.get("name", ""),
+                    })
+                    consolidated["signaux_pre_detectes"] = llm_signals
+                    logger.info(
+                        f"REDUCE: nouveau_dsi_dir_transfo detected "
+                        f"(Python-fallback) from {d.get('name')} "
+                        f"({d.get('anciennete_mois')} months)"
+                    )
+                    break
+
     today = date.today()
+
+    # 6c. direction_transfo_existe fallback: transformation/digital director
+    direction_transfo_by_llm = any(
+        s.get("signal_id") == "direction_transfo_existe" and s.get("probable")
+        for s in llm_signals
+    )
+    if not direction_transfo_by_llm:
+        _TRANSFO_TITLE_KW = {
+            "transformation", "digital", "cdo", "chief digital",
+            "chief data", "directeur digital", "directeur de la transformation",
+            "dir transfo", "numérique",
+        }
+        for d in all_dirigeants:
+            if d.get("is_c_level") and d.get("is_current_employee", True):
+                title_lower = (d.get("current_title") or "").lower()
+                if any(kw in title_lower for kw in _TRANSFO_TITLE_KW):
+                    llm_signals.append({
+                        "signal_id": "direction_transfo_existe",
+                        "probable": True,
+                        "evidence": (
+                            f"{d.get('name')} — {d.get('current_title')}"
+                        ),
+                        "source": d.get("name", ""),
+                    })
+                    consolidated["signaux_pre_detectes"] = llm_signals
+                    logger.info(
+                        f"REDUCE: direction_transfo_existe detected "
+                        f"(Python-fallback) from {d.get('name')}"
+                    )
+                    break
+
+    # 6d. posts_linkedin_transfo fallback: ≥2 C-level posts with transfo topic
+    posts_transfo_by_llm = any(
+        s.get("signal_id") == "posts_linkedin_transfo" and s.get("probable")
+        for s in llm_signals
+    )
+    if not posts_transfo_by_llm:
+        # Build set of C-level names (lowercase) for author matching
+        c_level_names_lower = set()
+        for cl in consolidated.get("c_levels") or []:
+            c_level_names_lower.add(cl.get("name", "").lower())
+        for d in all_dirigeants:
+            if d.get("is_c_level"):
+                c_level_names_lower.add(d.get("name", "").lower())
+
+        # Date cutoff: 6 months ago
+        _m = today.month - 6
+        _y = today.year
+        while _m <= 0:
+            _m += 12
+            _y -= 1
+        cutoff_6m = f"{_y}-{_m:02d}-01"
+
+        transfo_posts = []
+        for post in all_posts:
+            auteur_lower = (post.get("auteur") or "").lower()
+            post_date = post.get("date") or ""
+            topics = post.get("topics") or []
+            if (auteur_lower in c_level_names_lower
+                    and post_date >= cutoff_6m
+                    and "transformation_digitale" in topics):
+                transfo_posts.append(post)
+
+        if len(transfo_posts) >= 2:
+            auteurs = list({p.get("auteur", "") for p in transfo_posts})
+            llm_signals.append({
+                "signal_id": "posts_linkedin_transfo",
+                "probable": True,
+                "evidence": (
+                    f"{len(transfo_posts)} posts transfo par C-levels: "
+                    f"{', '.join(auteurs[:3])}"
+                ),
+                "source": ", ".join(auteurs[:3]),
+            })
+            consolidated["signaux_pre_detectes"] = llm_signals
+            logger.info(
+                f"REDUCE: posts_linkedin_transfo detected "
+                f"(Python-fallback) — {len(transfo_posts)} posts from "
+                f"{', '.join(auteurs[:3])}"
+            )
+
+    # 7. Turnover COMEX: detect ≥3 C-level departures in 18 months
     cutoff_month = today.month - 18
     cutoff_year = today.year
     while cutoff_month <= 0:

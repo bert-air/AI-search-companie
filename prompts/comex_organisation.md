@@ -49,7 +49,7 @@ INTERDIT : mentionner des acquisitions, LBO, ou résultats financiers dans tes f
 
 | signal_id | Règle | Source attendue |
 |---|---|---|
-| nouveau_dsi_dir_transfo | DSI ou Dir Transfo/CDO en poste < 12 mois | LinkedIn (pré-détecté) + web confirmation |
+| nouveau_dsi_dir_transfo | DSI, CTO IT, CIO, CDO ou Dir Transfo en poste < 12 mois | LinkedIn (pré-détecté) + web confirmation |
 | nouveau_pdg_dg | PDG ou DG en poste < 12 mois | LinkedIn (pré-détecté) + web confirmation |
 | direction_transfo_existe | Département Transformation/Digital avec un responsable nommé (distinct du DSI) | LinkedIn + web |
 | dsi_plus_40 | Effectif DSI estimé > 40. JUSTIFICATION OBLIGATOIRE. | Estimation argumentée |

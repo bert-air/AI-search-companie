@@ -117,6 +117,55 @@ def _map_response_to_growth(data: dict) -> dict:
     return result
 
 
+async def resolve_company_by_url(linkedin_company_url: str) -> tuple[Optional[str], Optional[str]]:
+    """Resolve a LinkedIn company URL to (company_id, company_url).
+
+    Uses GET /linkedin/company/{slug} which returns the numeric ID,
+    entity URN, and canonical profile URL.
+
+    Returns (company_id, company_url) or (None, None) on failure.
+    """
+    slug = _extract_linkedin_slug(linkedin_company_url)
+    if not slug:
+        logger.warning(f"Unipile resolve: could not extract slug from {linkedin_company_url}")
+        return None, None
+
+    account_id = _get_account_id()
+    if not account_id:
+        logger.warning("Unipile resolve: no account_id available")
+        return None, None
+
+    if not settings.unipile_api_key:
+        logger.warning("Unipile resolve: API key not configured")
+        return None, None
+
+    url = f"{settings.unipile_base_url}/linkedin/company/{slug}"
+    params = {"account_id": account_id}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.get(url, params=params, headers=_headers())
+            resp.raise_for_status()
+            data = resp.json()
+
+            company_id = str(data.get("id", ""))
+            profile_url = data.get("profile_url", linkedin_company_url)
+
+            if company_id:
+                logger.info(f"Unipile resolve: {slug} -> ID {company_id}")
+                return company_id, profile_url
+
+            logger.warning(f"Unipile resolve: no ID in response for {slug}")
+            return None, None
+
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"Unipile resolve: HTTP {e.response.status_code} for {slug}")
+            return None, None
+        except Exception as e:
+            logger.warning(f"Unipile resolve: error for {slug}: {e}")
+            return None, None
+
+
 async def get_employees_growth(linkedin_company_url: str) -> dict:
     """Fetch employee growth data from Unipile.
 

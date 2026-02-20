@@ -482,7 +482,8 @@ def _extract_signal_ids(prompt: str) -> list[str]:
     if backtick:
         return backtick
     # Fallback: match plain signal_id patterns in table rows (word_word format)
-    return re.findall(r"\|\s*(\w+(?:_\w+)+)\s*\|", signals_section)
+    ids = re.findall(r"\|\s*(\w+(?:_\w+)+)\s*\|", signals_section)
+    return [sid for sid in ids if sid != "signal_id"]
 
 
 def _estimate_context_chars(messages: list) -> int:

@@ -45,7 +45,7 @@ Pour chacun des C-levels fournis, produis UNE fiche structurée :
 |---|---|
 | cible_prioritaire_identifiee | Un dirigeant avec verbatim de douleur EXPLICITE aligné avec une offre de pilotage/PPM/gestion de projets/automatisation. Le verbatim doit exprimer un BESOIN, pas juste mentionner un sujet. |
 | dirigeant_actif_linkedin | La cible prioritaire identifiée poste ≥2 fois par mois (estimé depuis les données). Si pas de cible prioritaire, évaluer le dirigeant C-level le plus pertinent. |
-| reseau_alumni_commun | Un C-level a travaillé dans une entreprise où un sales de l'équipe a aussi travaillé OU étudié dans la même école. Équipe commerciale : {{sales_list}}. |
+| reseau_alumni_commun | Un C-level a travaillé dans une entreprise où un sales de l'équipe a aussi travaillé OU étudié dans la même école. Équipe commerciale : voir section « Équipe commerciale » dans le contexte fourni. |
 
 ## Règle sources
 
