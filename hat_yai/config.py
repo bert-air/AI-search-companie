@@ -86,4 +86,13 @@ LINKEDIN_REGION_IDS: dict[str, str] = {
 # Title keywords for supplementary executive search (signal-relevant roles)
 TITLE_SEARCH_KEYWORDS = ["PMO", "project management office", "CIO office", "manager IT", "chief of staff"]
 
+# IT leadership keywords for targeted search (captures CTO IT, DSI, CISO, CDO...)
+IT_LEADERSHIP_KEYWORDS = [
+    "CTO", "CIO", "CISO", "CDO",
+    "DSI", "Chief Technology", "Chief Information",
+    "Chief Digital", "Chief Data", "Chief Security",
+    "Directeur IT", "Directeur Systèmes",
+    "VP IT", "VP Technology", "VP Digital",
+]
+
 settings = load_settings()

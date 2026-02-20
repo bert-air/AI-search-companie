@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Optional
 
-from hat_yai.config import LINKEDIN_REGION_IDS, TITLE_SEARCH_KEYWORDS
+from hat_yai.config import LINKEDIN_REGION_IDS, TITLE_SEARCH_KEYWORDS, IT_LEADERSHIP_KEYWORDS
 from hat_yai.state import AuditState
 from hat_yai.tools import ghost_genius as gg
 from hat_yai.tools import evaboot
@@ -214,6 +214,45 @@ async def _step3_search_executives(
         except Exception as e:
             logger.error(f"Step 3b: All 3 APIs failed ({e}), no keyword results")
 
+    # --- Step 3c: IT leadership keyword search ---
+    it_keyword_results: list[dict] = []
+
+    try:
+        it_keyword_results = await evaboot.search_executives_by_keywords(
+            linkedin_company_id, company_name, IT_LEADERSHIP_KEYWORDS, region_id, region_name,
+        )
+        if it_keyword_results:
+            logger.info(f"Step 3c: Evaboot IT leadership found {len(it_keyword_results)} profiles")
+        else:
+            logger.warning("Step 3c: Evaboot IT leadership returned empty results")
+    except Exception as e:
+        logger.warning(f"Step 3c: Evaboot IT leadership failed ({e})")
+
+    if not it_keyword_results:
+        try:
+            it_keyword_results = await unipile.search_executives_by_keywords(
+                linkedin_company_id, company_name, IT_LEADERSHIP_KEYWORDS, region_id, region_name,
+            )
+            if it_keyword_results:
+                logger.info(f"Step 3c: Unipile IT leadership found {len(it_keyword_results)} profiles")
+            else:
+                logger.warning("Step 3c: Unipile IT leadership returned empty results")
+        except Exception as e:
+            logger.warning(f"Step 3c: Unipile IT leadership failed ({e})")
+
+    if not it_keyword_results:
+        try:
+            it_kw_str = " ".join(IT_LEADERSHIP_KEYWORDS)
+            it_keyword_results = await gg.search_executives_by_keywords(
+                linkedin_company_id, keywords=it_kw_str, locations=region_id,
+            )
+            if it_keyword_results:
+                logger.info(f"Step 3c: Ghost Genius IT leadership found {len(it_keyword_results)} profiles")
+            else:
+                logger.warning("Step 3c: Ghost Genius IT leadership returned empty results")
+        except Exception as e:
+            logger.error(f"Step 3c: All 3 APIs failed ({e}), no IT leadership results")
+
     # --- Merge and deduplicate ---
     seen_ids: set[str] = set()
     current_deduped: list[dict] = []
@@ -229,6 +268,14 @@ async def _step3_search_executives(
 
     # Keyword results (current employees, may overlap with seniority)
     for exec_data in keyword_results:
+        eid = exec_data.get("id", "")
+        if eid and eid not in seen_ids:
+            seen_ids.add(eid)
+            exec_data["is_current_employee"] = True
+            current_deduped.append(exec_data)
+
+    # IT leadership results (current employees, may overlap with seniority/keyword)
+    for exec_data in it_keyword_results:
         eid = exec_data.get("id", "")
         if eid and eid not in seen_ids:
             seen_ids.add(eid)
