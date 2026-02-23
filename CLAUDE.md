@@ -1,5 +1,12 @@
 # CLAUDE.md — Project conventions
 
+## Core Principles
+
+- **Simplicite d'abord** — chaque changement doit etre aussi simple que possible, impacter un minimum de code
+- **Pas de laziness** — toujours chercher la cause racine, jamais de fix temporaire. Standards de senior developer
+- **Impact minimal** — ne toucher que ce qui est necessaire. Eviter d'introduire des bugs colateraux
+- **Elegance (equilibree)** — pour les changements non-triviaux, se demander "y a-t-il une solution plus elegante ?". Ne pas sur-ingenierer les fix simples
+
 ## Git workflow
 
 - **Default branch for commits/push: `staging`**
@@ -40,6 +47,58 @@
 - `.env.example` contient les placeholders pour reference
 - GHOST_GENIUS_ACCOUNT_IDS provient de Supabase `workspace_team.ghost_genius_account_id` (status=active)
 
+## Architecture diagram (auto-update)
+
+- Le fichier `docs/agent-flow.md` contient le diagramme Mermaid detaille du flux complet des agents
+- **A chaque modification du graph, des nodes, ou des cascades** (fichiers `graph.py`, `*_node.py`, `tools/*.py`), mettre a jour `docs/agent-flow.md` pour refleter le changement
+- Le diagramme couvre : graph high-level, cascade Step 1, pipeline LinkedIn 5 etapes, cascade executive search, scoring/verdicts
+- Objectif : toujours avoir une vue a jour du systeme, lisible sans lire le code
+
+## Plan Mode & Execution Strategy
+
+### Quand entrer en plan mode
+
+- **Obligatoire** pour toute tache non-triviale (3+ etapes ou decisions architecturales)
+- Si quelque chose deraille en cours de route → **STOP et re-planifier immediatement**, ne pas insister
+- Utiliser le plan mode aussi pour les etapes de verification, pas seulement le build
+- Ecrire des specs detaillees en amont pour reduire l'ambiguite
+
+### Exigence d'elegance
+
+- Pour les changements non-triviaux : pause et demander "y a-t-il une facon plus elegante ?"
+- Si un fix semble hacky : "Sachant tout ce que je sais maintenant, implementer la solution elegante"
+- Pour les fix simples et evidents : skip, ne pas sur-ingenierer
+
+## Subagent Strategy
+
+- Utiliser les subagents **liberalement** pour garder la fenetre de contexte principale propre
+- Deleguer recherche, exploration et analyses paralleles aux subagents
+- Pour les problemes complexes : jeter plus de compute via subagents
+- **Une tache par subagent** pour une execution focalisee
+
+## Task Management & Self-Improvement
+
+### Gestion des taches
+
+- **Plan d'abord** : ecrire le plan avec des items checkables avant d'implementer
+- **Verifier le plan** : valider avec l'utilisateur avant de commencer
+- **Suivre la progression** : marquer les items complete au fur et a mesure
+- **Expliquer les changements** : resume haut-niveau a chaque etape
+
+### Boucle d'auto-amelioration
+
+- Apres **toute correction** de l'utilisateur : noter le pattern dans la memoire projet
+- Ecrire des regles pour soi-meme qui empechent la meme erreur
+- Iterer sans pitie sur ces lecons jusqu'a ce que le taux d'erreur baisse
+- Relire les lecons au debut de chaque session pour le projet concerne
+
+## Autonomous Bug Fixing
+
+- Quand un bug est signale : **le fixer directement**, ne pas demander de l'aide pas-a-pas
+- Pointer les logs, erreurs, tests qui echouent — puis les resoudre
+- Zero context-switching requis de la part de l'utilisateur
+- Aller fixer les tests CI qui echouent sans qu'on explique comment
+
 ## Agent Development Harness
 
 Philosophie : Harness Engineering — preparer le contexte, lancer les tests, lire les traces, iterer.
@@ -66,6 +125,7 @@ Philosophie : Harness Engineering — preparer le contexte, lancer les tests, li
 - [ ] La trace LangSmith montre les etapes attendues sans erreur
 - [ ] Les logs Supabase ne contiennent pas d'anomalie
 - [ ] Le comportement tient sur un cas limite
+- [ ] **"Un staff engineer approuverait-il ce code ?"** — ne jamais marquer une tache complete sans prouver qu'elle fonctionne
 
 ### Sources de verite
 
